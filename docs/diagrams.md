@@ -2,7 +2,7 @@
 
 Last reviewed: 2026-10-02
 
-All diagrams show the **target** design. Nothing here is implemented yet; see [project.md](./project.md#current-implementation-status). Decisions are governed by [source-of-truth.md](./source-of-truth.md).
+All diagrams show the **target** design unless marked Implemented. Only the app shell, design system, home screen, and SQLite bootstrap exist; see [project.md](./project.md#current-implementation-status). Decisions are governed by [source-of-truth.md](./source-of-truth.md).
 
 ## High-Level Mobile Architecture
 
@@ -26,6 +26,27 @@ flowchart TD
     LOGIC --> DB
     DB <--> QUEUE
     QUEUE <-.->|"only when online"| CLOUD
+```
+
+## Clean Architecture Layers
+
+Arrows show allowed import direction. Rules are in [source-of-truth.md](./source-of-truth.md#clean-architecture-layers).
+
+```mermaid
+flowchart TD
+    ROUTES["src/app: routes and composition root"]
+    PRES["Presentation: screens, components, hooks"]
+    INFRA["Infrastructure: SQLite, camera, OpenCV, future Supabase sync"]
+    APP["Application: use cases and ports"]
+    DOMAIN["Domain: entities and pure rules"]
+
+    ROUTES --> PRES
+    ROUTES --> INFRA
+    PRES --> APP
+    PRES --> DOMAIN
+    INFRA --> APP
+    INFRA --> DOMAIN
+    APP --> DOMAIN
 ```
 
 ## Answer Sheet Scanning Flow
@@ -129,7 +150,7 @@ flowchart LR
 
 ## Mobile Navigation
 
-Proposed. No navigation exists in the repository.
+Proposed. Implemented today: a single Expo Router stack with the Home route (`/`) only. Every other screen below is planned.
 
 ```mermaid
 flowchart TD
@@ -153,7 +174,7 @@ flowchart TD
 
 ## Proposed Domain Model
 
-No schema exists. This is a proposal, not a confirmed design. All `id` columns are device-generated UUIDs.
+No schema exists: the SQLite database is created with no tables. This is a proposal, not a confirmed design. All `id` columns are device-generated UUIDs.
 
 ```mermaid
 erDiagram

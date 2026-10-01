@@ -6,7 +6,7 @@ This document covers **network-facing routes only**. In-process application cont
 
 ## Current State
 
-**No backend and no network API exist.** The repository contains no server code, no route handlers, no Supabase configuration, and no HTTP client code. There are zero implemented routes.
+**No backend and no network API exist.** The repository contains the mobile app foundation only: no server code, no route handlers, no Supabase package or configuration, and no HTTP client code. There are zero implemented routes. ("Routes" in `src/app` are Expo Router screens, not network routes.)
 
 The application is designed so that it does not need any. Every core function — scanning, answer detection, scoring, saving, viewing, deleting — runs on the device against SQLite.
 
@@ -22,7 +22,7 @@ Normal OMR must never depend on a network route. The following are prohibited as
 
 ## Remote Access Strategy
 
-Cloud functionality is Optional/Future. Two approaches are possible. Which one is used is an open decision; Option A is the current recommendation because it avoids building and hosting a custom server.
+Online synchronization is a planned part of the target architecture and is not implemented. Two approaches are possible. Which one is used is an open decision; Option A is the current recommendation because it avoids building and hosting a custom server.
 
 ### Option A — Direct Supabase access (recommended)
 
@@ -37,9 +37,9 @@ In this option the sync processor pushes each queued operation as an insert/upse
 | Interaction | Purpose | Authentication | Offline behavior | Status |
 | --- | --- | --- | --- | --- |
 | Supabase Auth sign-in / refresh | Identify the Teacher account | Email/password or other provider (undecided) | Not available offline; existing session and all local features keep working | Optional |
-| Table upsert / update | Push queued `CREATE` and `UPDATE` | Teacher session, row-level security | Operation stays in sync queue | Optional |
-| Table delete by ID | Push queued `DELETE` | Teacher session, row-level security | Operation stays in sync queue; missing row counts as success | Optional |
-| Table select changed rows | Pull remote changes | Teacher session, row-level security | Skipped; local data remains authoritative | Optional |
+| Table upsert / update | Push queued `CREATE` and `UPDATE` | Teacher session, row-level security | Operation stays in sync queue | Planned |
+| Table delete by ID | Push queued `DELETE` | Teacher session, row-level security | Operation stays in sync queue; missing row counts as success | Planned |
+| Table select changed rows | Pull remote changes | Teacher session, row-level security | Skipped; local data remains authoritative | Planned |
 | Storage upload / delete | Back up or remove scan images | Teacher session, storage policies | Stays queued | Optional |
 
 Only client-safe configuration (project URL and anon key) may be in the app. The service-role key never ships in the mobile client.

@@ -4,7 +4,7 @@ Last reviewed: 2026-10-02
 
 This document describes the application's internal contracts: the boundaries between UI, application services, OMR, camera, local storage, and sync. For network-facing routes see [api-routes.md](./api-routes.md).
 
-> **Status: every contract in this document is a Proposed Contract.** No code exists in the repository. Function names, DTO shapes, and error codes are conceptual and may change when implemented. Update this document when they do.
+> **Status: every contract in this document is a Proposed Contract, except the [Database Bootstrap Contract](#database-bootstrap-contract), which is implemented.** No application service, repository, OMR, camera, scoring, deletion, or sync code exists. Function names, DTO shapes, and error codes are conceptual and may change when implemented. Update this document when they do.
 
 ## API Philosophy
 
@@ -14,6 +14,7 @@ This document describes the application's internal contracts: the boundaries bet
 - IDs are device-generated UUIDs (or equivalent), stable across local and cloud storage.
 - Operations return typed results or typed errors from the [Error Model](#error-model); they do not fail silently.
 - There is one role, Teacher. No contract takes a role or permission argument.
+- Contracts follow the clean architecture layers in [source-of-truth.md](./source-of-truth.md#clean-architecture-layers): use cases and ports live in a feature's application layer, their SQLite, camera, and OpenCV implementations in its infrastructure layer.
 
 ## Application Services
 
@@ -27,7 +28,7 @@ Proposed Contracts.
 | Exams | `createExam()`, `updateExam()`, `deleteExam()`, `saveAnswerKey()` |
 | Scanning | `captureAnswerSheet()`, `processAnswerSheet()`, `reviewDetection()` |
 | Results | `calculateScore()`, `saveResult()`, `deleteResult()` |
-| Sync (Optional/Future) | `queueSyncOperation()`, `runSync()` |
+| Sync (Planned) | `queueSyncOperation()`, `runSync()` |
 
 All `delete*()` operations are permanent deletions as defined in the [Permanent Deletion Contract](#permanent-deletion-contract).
 
@@ -91,6 +92,18 @@ Proposed Contract.
 - Hardware or capture failure produces `CAMERA_ERROR`.
 - Captured images are temporary. They are removed after processing unless the scan image is deliberately retained with the result (open decision).
 - Capture resolution should be only as high as OMR accuracy requires, to limit memory use and processing time on low-end devices.
+
+## Database Bootstrap Contract
+
+Implemented in `src/core/infrastructure/database/`.
+
+- `DatabaseProvider` wraps the app in `src/app/_layout.tsx`. On native it opens `answer-checker.db` and finishes initialization before any screen renders. On web it is a pass-through and opens no database.
+- Initialization sets `PRAGMA journal_mode = WAL` and `PRAGMA foreign_keys = ON`, then runs migrations.
+- `runMigrations(db, migrations)` reads `PRAGMA user_version`, applies each pending migration, and returns the resulting version.
+  - Migration versions must be 1, 2, 3 and so on, in order; anything else throws before the database is touched.
+  - Each migration and its version bump commit in one exclusive transaction. A failed migration rolls back completely and leaves the previous version in place.
+  - A database whose version is higher than the app knows is refused rather than downgraded.
+- `MIGRATIONS` in `migrations.ts` is the only place schema is defined. It is currently empty.
 
 ## Local Repository Contracts
 
@@ -168,7 +181,7 @@ When a delete will cascade, the confirmation dialog must say what else will be r
 
 ## Sync Contract
 
-Proposed Contract. Optional/Future.
+Proposed Contract. Planned; not implemented, and Supabase is not installed.
 
 **Operations:** `CREATE`, `UPDATE`, `DELETE`
 
@@ -254,7 +267,7 @@ Conceptual shape:
 
 Proposed.
 
-- **Database schema:** versioned migrations applied on app start. Migrations are forward-only and must preserve existing local data.
+- **Database schema:** versioned migrations applied on app start (runner implemented, see [Database Bootstrap Contract](#database-bootstrap-contract)). Migrations are forward-only and must preserve existing local data.
 - **Answer sheet template:** each template carries a version so old printed sheets remain scannable after the layout changes. The planned QR code may encode the template version.
 - **Sync payloads:** carry a schema version so the cloud can accept clients that have not yet updated.
 - **This document:** any change to a contract updates this file in the same change.
