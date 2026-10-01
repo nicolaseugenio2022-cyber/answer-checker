@@ -28,7 +28,10 @@ export function Screen({ children, title, showBack }: ScreenProps) {
       style={{ paddingTop: insets.top, paddingLeft: insets.left, paddingRight: insets.right }}>
       <AppBackdrop />
       {title !== undefined && <ScreenHeader title={title} showBack={showBack} />}
-      <ScrollView style={{ flex: 1 }} keyboardShouldPersistTaps="handled">
+      <ScrollView
+        style={{ flex: 1 }}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}>
         {/*
           The spacing lives on this plain View, not on the ScrollView's content
           container. On Android, NativeWind's contentContainerClassName replaced
