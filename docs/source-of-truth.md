@@ -4,16 +4,19 @@ Last reviewed: 2026-10-02
 
 This document records the authoritative product and architecture decisions for the Offline Answer Sheet Scanner. Developers and AI coding agents must read it before changing the project.
 
-> **Implementation status at time of writing:** the Expo application foundation exists: project scaffold, NativeWind and React Native Reusables design system, one home screen, and a SQLite bootstrap with a versioned migration runner. No camera, OMR, business data, production tables, authentication, or synchronization exists. Unless a row or sentence says "Implemented", everything below is a **target decision**, not a description of working software. See [project.md](./project.md#current-implementation-status).
+> **Implementation status at time of writing:** the Expo application foundation exists: design system, bottom-tab navigation, a Home dashboard, placeholder screens, and a local SQLite bootstrap with a versioned migration runner and no tables. No camera, OMR, business data, or production tables exist. Unless a row or sentence says "Implemented", everything below is a **target decision**, not a description of working software. See [project.md](./project.md#current-implementation-status).
 
 ## Product Truth
 
 - This is a **mobile application**.
-- The primary and only current role is **Teacher**.
-- Core functionality must work **offline**.
+- The application is **offline-only**. Every feature works with no network, and no feature uses one.
+- The only role is **Teacher**.
+- All data is held in a **local SQLite database stored on the Teacher's device**. It is the only application database.
 - The application scans **standardized shaded answer sheets** designed for this system.
-- Answer recognition uses **deterministic OMR / computer vision**, not AI/LLM inference.
-- The application must support **permanent deletion**.
+- Answer recognition uses **deterministic OMR / computer vision**, not AI/LLM inference, and runs on the device.
+- The application must support **permanent physical deletion**.
+
+This replaces the earlier "offline-first with planned online synchronization" decision. See [Excluded: Cloud and Synchronization](#excluded-cloud-and-synchronization).
 
 ## Role Truth
 
@@ -23,31 +26,43 @@ Current roles:
 
 Do not create `Admin`, `Student`, `Super Admin`, `Staff`, or `Examiner` roles unless future requirements explicitly change the project.
 
-Do not introduce RBAC. With a single role there is nothing to authorize between. If authentication is added, the authenticated account *is* the Teacher. Students are data records managed by the Teacher; they never sign in.
+Do not introduce RBAC. With a single role there is nothing to authorize between. There is no authentication and there are no accounts: the person using the device is the Teacher. Students are data records managed by the Teacher; they never sign in.
 
 ## Technology Truth
 
-| Area | Target | Status |
+| Area | Decision | Status |
 | --- | --- | --- |
 | Mobile | React Native, Expo, TypeScript | Implemented (scaffold) |
 | Navigation | Expo Router, routes under `src/app` | Implemented |
-| UI | React Native Reusables, NativeWind, shadcn New York style | Implemented (foundation: `Button`, `Text`, theme tokens) |
-| Camera | Expo Camera, or a compatible React Native camera library | Planned, not installed |
+| UI | React Native Reusables, NativeWind, shadcn New York style | Implemented (foundation) |
+| Persistence | SQLite via `expo-sqlite`. Required; the only application database | Implemented (bootstrap and migration runner only; no tables) |
+| Camera | Expo Camera, or a compatible React Native camera library, on-device | Planned, not installed |
 | OMR | OpenCV running on-device | Planned, not installed |
-| Offline database | SQLite via `expo-sqlite` | Implemented (bootstrap and migration runner only; no tables) |
 | Query/ORM layer | Drizzle ORM | Optional, not decided, not installed |
-| Online synchronization | Persistent outbox pushed to Supabase (PostgreSQL, Auth, Storage) | Planned, not installed |
+| Backend, cloud database, synchronization, authentication | None | Excluded from the approved architecture |
+
+`expo-sqlite` is the required persistence technology. Supabase, MongoDB, PostgreSQL, and any other remote or hosted database are not part of the approved architecture and must not be installed.
 
 Expo Router is the navigation system. Do not add MobX, Inversify, a separate navigation library, or another state or dependency-injection framework without a documented need; wire dependencies with plain TypeScript composition.
 
-This is not a Next.js application and not a browser-first React application. No mandatory FastAPI, Python, or other server is part of the architecture.
+This is not a Next.js application and not a browser-first React application. There is no server of any kind: no FastAPI, no Python service, no backend API.
 
 ## UI Truth
 
 - The project's design language is **shadcn New York style**.
 - Browser-only `shadcn/ui` is **not** the mobile runtime. Its components depend on the DOM and Radix web primitives and must not be imported into the React Native app.
 - The mobile implementation uses React Native-compatible components: **React Native Reusables** styled with **NativeWind**.
-- The primary accent is a restrained pink on a neutral zinc base, with coordinated light and dark tokens defined in `src/global.css` and mirrored in `src/core/presentation/lib/theme.ts`. The interface stays mostly neutral; pink marks primary actions and shaded bubbles.
+- Pink is the product's identity color on a neutral base. It marks primary actions, the Scan tab, the active tab, focus rings, quick-action icon plates, section accents, and action labels. Surfaces and body text stay neutral.
+- All colors are semantic tokens defined in `src/global.css` and mirrored in `src/core/presentation/lib/theme.ts`. Do not hard-code colors in components. Change both files together.
+- Dark mode is a plum-tinted near-black, not pure black. Surfaces step up in lightness (background, card, popover) so layers stay distinguishable, borders are visible, and muted text stays readable. Every text pair must keep at least 4.5:1 contrast in both themes.
+- Glass is used selectively: the bottom tab bar, the Home header control, quick actions, and the Activity panel. Glass means the `glass` token at partial opacity plus a thin `glass-border` edge. Do not put glass inside glass, and do not apply it to every surface.
+- Only the tab bar uses a live blur (`expo-blur`), and only on iOS and the web preview. Android uses a nearly opaque surface instead, for performance and because the Android blur path is unverified on a device. Content must stay readable with blur off.
+- The product is designed for phones, Android first. There is no desktop or tablet layout, no sidebar, and no drawer. Web exists only to preview the phone UI and is held to a phone-width column. Do not design hover-dependent or mouse-specific behavior. When web and a physical Android device differ, the device is the authority.
+- Navigation is one bottom tab bar for the single Teacher role, with at most five tabs: Home, Exams, Scan, Students, Results. The bar is a floating glass capsule with side margins, sitting above the bottom safe-area inset, with a visible label under every icon. The current tab's icon sits in a raised pink circle that overlaps the capsule's top edge and slides between tabs; tab positions and touch areas never move. Scan is the central tab and keeps a pink plate when it is not selected; it is a normal tab, not a separate floating button. Classes, Subjects, and Settings are secondary screens opened from Home; they keep the tab bar and add a back button. The destination list lives in `src/core/presentation/navigation/destinations.ts`.
+- The current tab is marked by position (the raised circle), shape, a heavier icon stroke, and a bolder label, as well as color. Touch targets are at least 48dp. The slide animation is short, has no overshoot, and is skipped when the system asks for reduced motion.
+- The Home dashboard shows real data or a truthful empty state with a next action. Never fake statistics, records, or activity.
+- Icons come from one family, Lucide (`lucide-react-native`), imported per icon (`lucide-react-native/icons/<name>`) to keep the bundle small. No emoji icons.
+- A screen for an unbuilt feature must say it is not built and must not show controls, sample records, or statistics that imply it works.
 - Visual rules: compact controls, clean typography, strong hierarchy, subtle borders, restrained border radius, dense but readable layouts, minimal visual noise, consistent spacing, accessible contrast, and mobile-friendly touch targets.
 
 The correct short description of the UI stack is "React Native + Expo, React Native Reusables, NativeWind, shadcn New York visual style" — never "React + shadcn/ui".
@@ -56,18 +71,17 @@ The correct short description of the UI stack is "React Native + Expo, React Nat
 
 ```text
 React Native + Expo + TypeScript
-  -> shadcn New York-style mobile UI (React Native Reusables + NativeWind)
-  -> Camera
-  -> On-device OpenCV OMR
-  -> Application logic
-  -> SQLite
-  -> Sync queue (planned)
-  -> Supabase / PostgreSQL (planned)
+  -> Mobile presentation layer
+  -> Application use cases
+  -> Domain rules
+  -> Local infrastructure
+  -> SQLite on the Teacher's device
 ```
 
-- SQLite on the device is the primary database. Everyday reads and writes go to SQLite, never to the cloud first.
-- OMR runs on the device. It must never depend on a remote API.
-- Online synchronization is a planned part of the target architecture, but it is secondary: backup, synchronization, and cross-device access only. The app must be complete and useful with synchronization absent or disabled.
+- Everything runs inside the mobile application. Nothing in this flow leaves the device.
+- SQLite runs inside the app. Every read and write goes to the local SQLite database.
+- Camera capture and OMR are local infrastructure and run entirely on the device. Scan images are local files.
+- The presentation layer is shadcn New York-style mobile UI built with React Native Reusables and NativeWind.
 
 ### Clean architecture layers
 
@@ -93,34 +107,37 @@ src/
 | --- | --- | --- |
 | Domain | Entities and pure business rules | Nothing outside domain |
 | Application | Use cases and the ports (interfaces) they need | Domain |
-| Infrastructure | Port implementations: SQLite, camera, OpenCV, future Supabase sync | Application, domain |
+| Infrastructure | Port implementations, all local: SQLite, local files, camera, OpenCV | Application, domain |
 | Presentation | React Native screens, components, hooks | Application, domain |
 | `src/app` | Route files and provider wiring | Any layer |
 
 Rules:
 
-- Dependencies point inward. Domain must not import React, React Native, Expo, SQLite, or Supabase.
+- Dependencies point inward. Domain must not import React, React Native, Expo, or SQLite.
+- No layer makes network requests.
 - SQL lives only in infrastructure.
 - Route files stay thin: they re-export or render a presentation screen and contain no business logic.
 - `src/app/_layout.tsx` is the composition root, the one place allowed to connect infrastructure to presentation.
 - A layer folder is created only when it has real code. Do not add empty folders, placeholder interfaces, or ports with no use case behind them.
 
-Folders that exist today: `src/app`, `src/core/presentation`, `src/core/infrastructure/database`, and `src/features/dashboard/presentation`. No domain or application code exists yet because no business rule or use case has been implemented.
+Folders that exist today: `src/app`, `src/core/presentation` (including `navigation`), `src/core/infrastructure/database`, and a `presentation` folder for each of the features `dashboard`, `scan`, `results`, `exams`, `classes`, `students`, `subjects`, and `settings`. No domain or application code exists yet because no business rule or use case has been implemented.
 
 ## Offline Truth
 
-The following must work with no internet connection:
+The application is offline-only. No network is required for any feature, and no feature uses one. That includes:
 
 - Opening the app and selecting an exam
-- Creating and editing students, classes, subjects, exams, and answer keys locally
+- Creating and editing students, classes, subjects, exams, and answer keys
 - Opening the camera and scanning an answer sheet
 - Running OMR and detecting answers
 - Reviewing and correcting detections
-- Comparing against the local answer key and calculating the score
+- Comparing against the answer key and calculating the score
 - Saving and viewing results
-- Permanently deleting local records
+- Permanently deleting records
 
-The scanning path must never be `Mobile -> Internet -> Server -> OpenCV -> Result`. It is `Mobile Camera -> On-device OMR -> Local application logic -> SQLite`.
+The scanning path is `Mobile camera -> On-device OMR -> Application use cases -> Local SQLite database`. It must never pass through a server.
+
+A feature that would need the internet is out of scope until the requirements change.
 
 ## OMR Truth
 
@@ -133,38 +150,51 @@ The scanning path must never be `Mobile -> Internet -> Server -> OpenCV -> Resul
 
 ## Data Truth
 
-- Local SQLite is the system of record for the device.
-- Record IDs are **stable, globally unique identifiers** (UUIDs or equivalent) generated on the device. Synchronization must never depend on local auto-increment IDs alone. The same ID identifies a record locally and in the cloud.
+- The local SQLite database is the only application database and the system of record.
+- The database file is stored in the app's private device storage.
+- Each installation on each device has its own independent database. Devices do not share data, and there is no cross-device access.
+- Data persists across closing and restarting the app. Clearing the app's data or uninstalling the app generally removes the database. Losing or replacing the phone may lose the data. There is no automatic backup.
+- The database is not encrypted by the application. Do not claim encryption unless it is implemented.
+- Record IDs are stable, globally unique identifiers (UUIDs or equivalent) generated on the device, not auto-increment integers. This keeps identity independent of insertion order and leaves a future manual export and restore possible without renumbering.
 - The domain model in [diagrams.md](./diagrams.md#proposed-domain-model) is **proposed**. Once a real schema exists, the schema is the evidence of what is implemented.
 - Schema changes are made only through ordered, versioned migrations in `src/core/infrastructure/database/migrations.ts`. The schema version is stored in `PRAGMA user_version`. The migration list is currently empty: no tables exist.
-- Do not add role or permission tables.
+- Do not add role, permission, account, or synchronization tables.
 
 ## Deletion Truth
+
+Permanent physical deletion is mandatory.
 
 - "Delete Permanently" means the local domain record is **physically removed** from SQLite.
 - It is not `isDeleted = true`. It is not `status = archived`. A soft-delete column must not be used to implement this feature. An archive feature, if ever added, is a separate feature.
 - Dependent data is removed with the parent where the relationship makes sense and is documented (for example, a result's student answers, scan metadata, and local scan image).
 - Deletion requires explicit confirmation that states the action cannot be undone.
-- The deleted domain record must not be kept locally for the sake of synchronization. Only a minimal sync instruction (operation, entity type, entity ID) may remain temporarily.
+- Deletion leaves nothing behind: no tombstone, no soft-deleted row, and no synchronization instruction.
+- Because there is no backup, a permanent deletion cannot be recovered.
 
-## Synchronization Truth
+## Excluded: Cloud and Synchronization
 
-Online synchronization is a **planned** capability of the target architecture, using Supabase/PostgreSQL. It is **not implemented**: Supabase is not installed or configured, and no outbox table exists. When it exists:
+The following are **not part of the approved architecture**. They are not planned for the initial product and must not be built, installed, configured, or designed for:
 
-- Local changes are recorded in a persistent outbox (sync queue) as `CREATE`, `UPDATE`, or `DELETE` operations.
-- A domain write and its outbox entry are committed in the same local SQLite transaction.
-- Local pending operations must never be overwritten blindly by stale cloud data.
-- **Deleted records must not be resurrected.** A pull must not re-insert a record that has a pending local `DELETE`, and the cloud must not accept a stale write for a record that was deleted.
-- Operations are idempotent and safe to retry. A remote `DELETE` of an already-missing record counts as success.
-- Sync failure must never block or degrade offline use.
+- Supabase
+- MongoDB
+- PostgreSQL or any other remote or hosted database
+- Cloud synchronization, including outbox or sync-queue tables
+- A backend API
+- Authentication and online accounts
+- Cross-device synchronization or access
+- Automatic cloud backup
+
+Cloud functionality may be reconsidered only after an explicit future requirement change. That change must be recorded as a new architecture decision in this document before any related code, dependency, or schema is added.
+
+A manual backup/export and restore feature that works on local files is a possible future feature. It would not make the application cloud-dependent and is not a synchronization layer. It is not designed or approved yet.
 
 ## Security Truth
 
-- Student information and scanned sheets are personal data stored on the device.
+- Student information and scanned sheets are personal data stored on the Teacher's device.
+- The data is protected only by the operating system's app sandbox and the device's own lock. The application implements no encryption, authentication, or access control. Do not claim otherwise.
 - Scan images should not be retained longer than necessary.
-- Secrets must never be committed to source code. The mobile client may contain only client-safe public configuration (for example, a Supabase URL and anon key protected by row-level security). Service-role keys never ship in the app.
-- Session tokens and credentials belong in secure device storage, not plain SQLite or plain key-value storage.
-- No encryption, authentication, or access control is implemented today. Do not claim otherwise.
+- The application talks to no service, so it holds no API keys, tokens, or credentials. None may be added.
+- Secrets must never be committed to source code.
 
 ## Documentation Precedence
 
@@ -190,13 +220,13 @@ If the implementation disagrees with the architecture documentation, **report th
 3. Do not introduce new roles without explicit requirements.
 4. Do not turn the project into Next.js or any browser-first application.
 5. Do not use browser-only shadcn components in the React Native runtime.
-6. Do not introduce mandatory internet dependencies.
-7. Do not replace permanent deletion with soft deletion.
+6. Do not introduce any network dependency, network request, backend, or account. The application is offline-only.
+7. Do not replace permanent physical deletion with soft deletion, tombstones, or archiving.
 8. Do not move OMR processing to a required remote API.
 9. Do not use AI/LLM inference as the answer-recognition mechanism.
 10. Do not hard-code OMR thresholds as final without calibration evidence.
 11. Respect the clean architecture layer rules: dependencies point inward, SQL stays in infrastructure, route files stay thin.
 12. Do not add empty layers, placeholder interfaces, or state/DI frameworks without a current need.
-13. Do not install OpenCV, Supabase, or Drizzle without an explicit decision recorded here.
+13. Do not install Supabase, MongoDB, or any cloud, synchronization, backend, or authentication dependency; they are excluded. Do not install OpenCV or Drizzle without an explicit decision recorded here.
 14. Update documentation when contracts change.
 15. Clearly distinguish Implemented, Planned, and Optional/Future features.

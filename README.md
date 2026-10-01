@@ -1,8 +1,10 @@
 # Answer Checker
 
-Offline-first mobile app for Teachers to check shaded multiple-choice answer sheets with the phone camera. Built with React Native, Expo, and TypeScript.
+Offline-only mobile app for Teachers to check shaded multiple-choice answer sheets with the phone camera. Built with React Native, Expo, and TypeScript.
 
-**Status:** foundation only. The app shell, design system, home screen, and on-device SQLite bootstrap exist. Scanning, OMR, exams, results, and synchronization are not built yet. See [docs/project.md](docs/project.md#current-implementation-status).
+Everything runs on the phone. Data is kept in a local SQLite database stored on the Teacher's device. There is no backend, no cloud database, no account, and no synchronization, so the app never needs the internet. Data is not shared between phones, and uninstalling the app or clearing its data removes it.
+
+**Status:** foundation only. The design system, bottom-tab navigation, Home dashboard, placeholder screens, and local SQLite bootstrap (no tables yet) exist. Scanning, OMR, exams, students, and results are not built yet. See [docs/project.md](docs/project.md#current-implementation-status).
 
 ## Get started
 
@@ -29,7 +31,7 @@ Read [docs/source-of-truth.md](docs/source-of-truth.md) before changing architec
 - [docs/source-of-truth.md](docs/source-of-truth.md) — authoritative product and architecture decisions
 - [docs/project.md](docs/project.md) — overview, stack, and implementation status
 - [docs/api.md](docs/api.md) — in-app contracts
-- [docs/api-routes.md](docs/api-routes.md) — network routes (none exist)
+- [docs/api-routes.md](docs/api-routes.md) — network routes (there are none, by design)
 - [docs/diagrams.md](docs/diagrams.md) — architecture and flow diagrams
 
 ## Adding UI components

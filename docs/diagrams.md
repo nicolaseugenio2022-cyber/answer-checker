@@ -2,30 +2,35 @@
 
 Last reviewed: 2026-10-02
 
-All diagrams show the **target** design unless marked Implemented. Only the app shell, design system, home screen, and SQLite bootstrap exist; see [project.md](./project.md#current-implementation-status). Decisions are governed by [source-of-truth.md](./source-of-truth.md).
+All diagrams show the **target** design unless marked Implemented. The application is offline-only: every component in every diagram runs on the Teacher's device, and there is no backend, cloud database, or synchronization. Only the app shell, design system, Home dashboard, placeholder screens, and SQLite bootstrap exist today; see [project.md](./project.md#current-implementation-status). Decisions are governed by [source-of-truth.md](./source-of-truth.md).
 
 ## High-Level Mobile Architecture
 
+Everything is inside the mobile application on the Teacher's device.
+
 ```mermaid
 flowchart TD
-    subgraph Device["React Native Mobile App - works offline"]
-        UI["UI: React Native Reusables + NativeWind"]
-        CAM["Camera"]
-        OMR["On-device OMR - OpenCV"]
-        LOGIC["Application Logic"]
-        DB[("SQLite")]
-        QUEUE["Sync Queue"]
+    subgraph Device["Teacher's device - no network used"]
+        UI["Mobile presentation layer: React Native Reusables + NativeWind"]
+        APP["Application use cases"]
+        DOMAIN["Domain rules"]
+        subgraph Infra["Local infrastructure"]
+            CAM["Camera"]
+            OMR["On-device OMR - OpenCV"]
+            REPO["SQLite repositories"]
+            FILES["Local file storage: scan images"]
+        end
+        DB[("Local SQLite database")]
     end
 
-    CLOUD[("Optional Cloud: Supabase / PostgreSQL")]
-
-    UI --> CAM
+    UI --> APP
+    APP --> DOMAIN
+    APP --> CAM
+    APP --> OMR
+    APP --> REPO
+    APP --> FILES
     CAM --> OMR
-    OMR --> LOGIC
-    UI --> LOGIC
-    LOGIC --> DB
-    DB <--> QUEUE
-    QUEUE <-.->|"only when online"| CLOUD
+    REPO --> DB
 ```
 
 ## Clean Architecture Layers
@@ -36,7 +41,7 @@ Arrows show allowed import direction. Rules are in [source-of-truth.md](./source
 flowchart TD
     ROUTES["src/app: routes and composition root"]
     PRES["Presentation: screens, components, hooks"]
-    INFRA["Infrastructure: SQLite, camera, OpenCV, future Supabase sync"]
+    INFRA["Infrastructure, all local: SQLite, local files, camera, OpenCV"]
     APP["Application: use cases and ports"]
     DOMAIN["Domain: entities and pure rules"]
 
@@ -85,25 +90,20 @@ sequenceDiagram
     actor Teacher
     participant App as Mobile App
     participant OMR as On-device OMR
-    participant DB as SQLite
-    participant Q as Sync Queue
-    participant Cloud as Optional Cloud
+    participant DB as Local SQLite database
+    participant Files as Local file storage
 
     Teacher->>App: Select exam and scan sheet
+    App->>Files: Store captured image
     App->>OMR: Captured image
     OMR-->>App: Detected answers with states
     Teacher->>App: Review and confirm
     App->>DB: Read answer key
     DB-->>App: Answer key
     App->>App: Calculate score
-    App->>DB: Save result and answers
-    App->>Q: Queue CREATE if sync enabled
+    App->>DB: Save result and answers in one transaction
     App-->>Teacher: Show result
-    Note over App,DB: Everything above works with no internet
-    opt Internet available and sync enabled
-        Q->>Cloud: Push pending operations
-        Cloud-->>Q: Acknowledge
-    end
+    Note over App,Files: Every step runs on the device. Nothing is sent anywhere.
 ```
 
 ## Permanent Delete Flow
@@ -115,42 +115,16 @@ flowchart TD
     B -- "Delete Permanently" --> C["Begin SQLite transaction"]
     C --> D["Delete dependents: student answers, scan metadata"]
     D --> E["Delete result record"]
-    E --> F{"Sync enabled?"}
-    F -- Yes --> G["Insert remote DELETE into sync queue"]
-    F -- No --> H["Commit transaction"]
-    G --> H
-    H --> I["Delete local scan image file"]
-    I --> J["Record disappears from UI immediately"]
-    J --> K{"Internet available?"}
-    K -- No --> L["DELETE stays queued"]
-    L --> K
-    K -- Yes --> M["Sync processor sends DELETE to cloud"]
-    M --> N{"Cloud confirms, or record already gone?"}
-    N -- Yes --> O["Remove DELETE queue entry"]
-    N -- No --> P["Increment retry count and back off"]
-    P --> K
-```
-
-## Sync Architecture
-
-```mermaid
-flowchart LR
-    DB[("SQLite")] --> OUT["Outbox / Sync Queue"]
-    OUT --> NET{"Connectivity?"}
-    NET -- Offline --> WAIT["Wait and retry later"]
-    WAIT --> NET
-    NET -- Online --> PROC["Sync Processor"]
-    PROC -->|"push CREATE / UPDATE / DELETE"| CLOUD[("Optional Cloud")]
-    CLOUD -->|"pull remote changes"| PROC
-    PROC --> GUARD{"Pending local operation for this record?"}
-    GUARD -- Yes --> SKIP["Skip remote change - local wins"]
-    GUARD -- No --> APPLY["Apply to SQLite"]
-    APPLY --> DB
+    E --> F{"Transaction commits?"}
+    F -- No --> R["Roll back: record fully intact, show error"]
+    F -- Yes --> G["Delete local scan image file"]
+    G --> H["Record disappears from UI"]
+    H --> I["Nothing remains: no tombstone, no soft-deleted row"]
 ```
 
 ## Mobile Navigation
 
-Proposed. Implemented today: a single Expo Router stack with the Home route (`/`) only. Every other screen below is planned.
+Implemented: a bottom tab bar with Home, Exams, Scan, Students, and Results. Classes, Subjects, and Settings are opened from Home, not from a tab. Scan, Exams, Students, Classes, Subjects, and Results are placeholder screens; Settings has a theme switch. The nested screens (Select Exam, Camera, Review Detection, Result Detail, Exam Detail, Answer Key) are planned and do not exist.
 
 ```mermaid
 flowchart TD
@@ -174,7 +148,7 @@ flowchart TD
 
 ## Proposed Domain Model
 
-No schema exists: the SQLite database is created with no tables. This is a proposal, not a confirmed design. All `id` columns are device-generated UUIDs.
+No schema exists: the local SQLite database is created with no tables. This is a proposal, not a confirmed design. All `id` columns are device-generated UUIDs. Every table is in the local SQLite database on the Teacher's device.
 
 ```mermaid
 erDiagram
@@ -256,20 +230,11 @@ erDiagram
         string image_path
         string scanned_at
     }
-    SYNC_QUEUE {
-        string operation_id PK
-        string operation_type
-        string entity_type
-        string entity_id
-        string payload
-        string created_at
-        int retry_count
-        string last_error
-    }
 ```
 
 Notes:
 
-- `SYNC_QUEUE` has no foreign keys on purpose: a `DELETE` entry must outlive the record it refers to.
-- `TEACHERS` holds a single local profile row. It is not a role or permission table. Whether it is needed before authentication exists is an open decision.
+- `SCAN_RECORDS.image_path` points to a file in local storage on the device.
+- No table has a soft-delete or archive column. Permanent physical deletion removes rows.
+- `TEACHERS` would hold a single local profile row. It is not an account, role, or permission table, and there is no sign-in. With one Teacher per installation it may be unnecessary; whether to keep it is an open decision.
 - A student belonging to exactly one class is an assumption; many-to-many enrollment is an open decision.
