@@ -52,7 +52,8 @@
     "android": "expo start --android",
     "ios": "expo start --ios",
     "web": "expo start --web",
-    "lint": "expo lint"
+    "lint": "expo lint",
+    "test:db": "node --no-warnings --import ./tests/database/register-ts.mjs --test tests/database/database.test.mjs"
   },
   "private": true
 }

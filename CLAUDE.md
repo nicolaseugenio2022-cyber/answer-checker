@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Answer Checker: an offline-only mobile app (React Native, Expo, TypeScript, Expo Router) for a Teacher to check shaded multiple-choice answer sheets with the phone camera using on-device OMR.
 
-Only the foundation exists: design system, bottom-tab navigation shell, a Home dashboard of shortcuts and empty states, placeholder destination screens, a Settings screen with a theme switch, and a SQLite bootstrap with an empty migration list.
+Only the foundation exists: design system, bottom-tab navigation shell, a Home dashboard of shortcuts and empty states, placeholder destination screens, a Settings screen with a theme switch, and a local SQLite database whose first migration creates the schema. No screen reads or writes it yet.
 
 Phone-only product, Android first. No desktop or tablet layout, no sidebar, no drawer, no hover-dependent behavior. Web is only a preview of the phone UI (held to a 480-point column in the root layout); a physical Android device is the authority when they differ. Camera, OMR, business data, and deletion are not built. `docs/project.md#current-implementation-status` is the record of what is real.
 
@@ -40,7 +40,7 @@ npx @react-native-reusables/cli@latest add <component>       # add a UI componen
 npx expo install <package>     # add an Expo-compatible dependency version
 ```
 
-No test runner is installed and there are no tests. `run-migrations.ts` has no runtime imports, so it can be exercised directly under Node (type stripping) with a `node:sqlite` adapter.
+`npm run test:db` runs the database tests with Node's built-in test runner and `node:sqlite`. There is no other test runner and no UI tests.
 
 Do not run `npm audit fix --force`: the current moderate findings come from `uuid` via `xcode` inside Expo build tooling, and the forced fix is breaking.
 
@@ -92,9 +92,14 @@ Today only `core/presentation`, `core/infrastructure/database`, and `features/<f
 
 ### Database
 
-- `DatabaseProvider` (`src/core/infrastructure/database/`) wraps the app in the root layout. Native: opens `answer-checker.db`, sets WAL and `foreign_keys = ON`, runs migrations before any screen renders. `database-provider.web.tsx` is a pass-through: web is a build-verification target only and opens no database.
-- Schema is defined only by appending to `MIGRATIONS` in `migrations.ts`. Versions must be 1, 2, 3… in order; never edit or reorder a shipped migration. Version is tracked in `PRAGMA user_version`; each migration commits atomically with its version bump.
-- `runMigrations` depends on a narrow `MigrationDatabase` interface rather than on `expo-sqlite`, which keeps it testable outside a device.
+- `DatabaseProvider` (`src/core/infrastructure/database/`) wraps the app in the root layout. Native: opens `answer-checker.db` and runs `initializeDatabase` (WAL, `foreign_keys = ON`, verify it is on, migrate) before any screen renders. `database-provider.web.tsx` is a pass-through and `useDatabase()` throws there: web opens no database and persists nothing.
+- Schema is defined only by appending to `MIGRATIONS` in `migrations.ts`, one file per migration under `migrations/`. Versions must be 1, 2, 3… in order; never edit or reorder a migration once a build containing it has been installed. Version is tracked in `PRAGMA user_version`; each migration commits atomically with its version bump.
+- Migration 1 creates `subjects`, `classes`, `students`, `exams`, `exam_questions`, `answer_keys`, `exam_results`, `student_answers`, `scan_records`. STRICT tables, TEXT UUID ids, UTC `toISOString()` timestamps, INTEGER 0/1 booleans. No teacher/account table and no soft-delete or sync columns.
+- Delete rules: CASCADE only inside an aggregate (exam to questions to answer keys; result to answers and scan record). RESTRICT elsewhere: a class with students or exams, a subject with exams, and a student or exam with results cannot be deleted. A use case that removes such a parent must delete its results explicitly in the same transaction, after reading their `scan_records.image_path` so the files can be removed after commit.
+- For data writes use `runInTransaction(db, task)`, never expo-sqlite's `withExclusiveTransactionAsync`: that opens a second connection where foreign keys are off, so RESTRICT and CASCADE would not apply. Migrations do use it, deliberately.
+- Database errors are `DatabaseError` (`code: 'DATABASE_ERROR'`) and its subclasses. No constructor parameter properties in files the tests load: Node's type stripping rejects them.
+- `npm run test:db` runs the schema, migration, constraint, and transaction tests against Node's built-in SQLite with disposable temp databases (no test framework, no new dependency). It proves the SQL, not expo-sqlite on a device.
+- No repositories, use cases, or domain code exist yet. SQL belongs in infrastructure only.
 
 ### UI
 

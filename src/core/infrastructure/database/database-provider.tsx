@@ -1,22 +1,33 @@
-import { SQLiteProvider, type SQLiteDatabase } from 'expo-sqlite';
+import { SQLiteProvider, useSQLiteContext, type SQLiteDatabase } from 'expo-sqlite';
 import type { PropsWithChildren } from 'react';
 
-import { MIGRATIONS } from './migrations';
-import { runMigrations } from './run-migrations';
+import { initializeDatabase } from './initialize-database';
 
 const DATABASE_NAME = 'answer-checker.db';
 
-async function initializeDatabase(db: SQLiteDatabase) {
-  // Both pragmas must run outside a transaction. foreign_keys is per connection.
-  await db.execAsync('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;');
-  await runMigrations(db, MIGRATIONS);
-}
-
-/** Opens the on-device database and migrates it before rendering children. */
+/**
+ * Opens the local database in the app's private storage and prepares it (WAL,
+ * foreign keys, migrations) before rendering children. If preparation fails,
+ * the error is thrown to the nearest error boundary and no screen renders
+ * against a half-initialized database.
+ */
 export function DatabaseProvider({ children }: PropsWithChildren) {
   return (
-    <SQLiteProvider databaseName={DATABASE_NAME} onInit={initializeDatabase}>
+    <SQLiteProvider
+      databaseName={DATABASE_NAME}
+      onInit={async (db) => {
+        await initializeDatabase(db);
+      }}>
       {children}
     </SQLiteProvider>
   );
+}
+
+/**
+ * The initialized connection, for wiring repositories in the composition root.
+ * Only valid under DatabaseProvider. Presentation code must not call this or
+ * issue SQL; it receives use cases instead.
+ */
+export function useDatabase(): SQLiteDatabase {
+  return useSQLiteContext();
 }
