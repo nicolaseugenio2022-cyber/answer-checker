@@ -1,0 +1,70 @@
+import { useRouter } from 'expo-router';
+import BookOpen from 'lucide-react-native/icons/book-open';
+import Moon from 'lucide-react-native/icons/moon';
+import Sun from 'lucide-react-native/icons/sun';
+import Users from 'lucide-react-native/icons/users';
+import { useColorScheme } from 'nativewind';
+import { View } from 'react-native';
+
+import { Item, ItemGroup } from '@/core/presentation/components/item';
+import { Screen } from '@/core/presentation/components/screen';
+import { Button } from '@/core/presentation/components/ui/button';
+import { Icon } from '@/core/presentation/components/ui/icon';
+import { Text } from '@/core/presentation/components/ui/text';
+import { destinationTitle } from '@/core/presentation/navigation/destinations';
+
+function SectionHeading({ children }: { children: string }) {
+  return (
+    <Text variant="h4" aria-level="2" className="text-base">
+      {children}
+    </Text>
+  );
+}
+
+export function SettingsScreen() {
+  const router = useRouter();
+  const { colorScheme, toggleColorScheme } = useColorScheme();
+  const isDark = colorScheme === 'dark';
+
+  return (
+    <Screen title={destinationTitle('settings')} showBack>
+      <View className="gap-3">
+        <SectionHeading>Appearance</SectionHeading>
+        <View className="gap-3 rounded-lg border border-border bg-card p-4">
+          <Text className="text-sm text-muted-foreground">
+            The app is using the {isDark ? 'dark' : 'light'} theme.
+          </Text>
+          <Button variant="outline" onPress={toggleColorScheme} className="h-12 self-start">
+            <Icon as={isDark ? Sun : Moon} size={16} />
+            <Text>{isDark ? 'Switch to light theme' : 'Switch to dark theme'}</Text>
+          </Button>
+        </View>
+      </View>
+
+      <View className="gap-3">
+        <SectionHeading>Manage</SectionHeading>
+        <ItemGroup>
+          <Item title="Classes" icon={Users} onPress={() => router.navigate('/classes')} />
+          <Item title="Subjects" icon={BookOpen} onPress={() => router.navigate('/subjects')} />
+        </ItemGroup>
+      </View>
+
+      <View className="gap-3">
+        <SectionHeading>Your data</SectionHeading>
+        <View className="gap-2 rounded-lg border border-border bg-card p-4">
+          <Text className="text-sm">
+            Everything is stored only on this device. There is no account, online backup, or sync
+            with other phones.
+          </Text>
+          <Text className="text-sm text-muted-foreground">
+            Uninstalling the app or clearing its data removes everything.
+          </Text>
+        </View>
+      </View>
+
+      <Text variant="muted">
+        Options for scanning and stored scan images will appear here when those features are built.
+      </Text>
+    </Screen>
+  );
+}

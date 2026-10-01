@@ -3,53 +3,63 @@
 @tailwind utilities;
 
 /*
- * Neutral zinc base with a restrained pink primary.
+ * Semantic theme tokens: neutral base, pink identity.
  * Values are HSL channels consumed as hsl(var(--token)) in tailwind.config.js.
- * Keep src/core/presentation/lib/theme.ts in sync when changing these.
+ * src/core/presentation/lib/theme.ts mirrors these for JavaScript APIs. After
+ * changing a value here, change it there too.
+ *
+ * Surfaces step up in lightness in dark mode so each layer is distinguishable:
+ * background < card < popover, with muted and secondary between them.
+ * --glass is the base color of translucent surfaces and is always used with an
+ * alpha (bg-glass/70). --glass-border is the edge that defines them.
  */
 @layer base {
   :root {
-    --background: 0 0% 100%;
-    --foreground: 240 10% 3.9%;
+    --background: 300 12% 98%;
+    --foreground: 280 14% 9%;
     --card: 0 0% 100%;
-    --card-foreground: 240 10% 3.9%;
+    --card-foreground: 280 14% 9%;
     --popover: 0 0% 100%;
-    --popover-foreground: 240 10% 3.9%;
-    --primary: 333 72% 44%;
+    --popover-foreground: 280 14% 9%;
+    --primary: 333 76% 42%;
     --primary-foreground: 0 0% 100%;
-    --secondary: 240 4.8% 95.9%;
-    --secondary-foreground: 240 5.9% 10%;
-    --muted: 240 4.8% 95.9%;
-    --muted-foreground: 240 3.8% 42%;
-    --accent: 327 73% 96%;
-    --accent-foreground: 335 75% 30%;
-    --destructive: 0 72% 46%;
+    --secondary: 290 9% 93%;
+    --secondary-foreground: 280 14% 12%;
+    --muted: 290 9% 94%;
+    --muted-foreground: 280 6% 38%;
+    --accent: 330 82% 94%;
+    --accent-foreground: 335 78% 30%;
+    --destructive: 0 72% 44%;
     --destructive-foreground: 0 0% 100%;
-    --border: 240 5.9% 90%;
-    --input: 240 5.9% 90%;
-    --ring: 333 72% 44%;
+    --border: 290 10% 81%;
+    --input: 290 10% 72%;
+    --ring: 333 76% 42%;
+    --glass: 0 0% 100%;
+    --glass-border: 332 40% 34%;
     --radius: 0.5rem;
   }
 
   .dark:root {
-    --background: 240 10% 3.9%;
-    --foreground: 0 0% 98%;
-    --card: 240 10% 3.9%;
-    --card-foreground: 0 0% 98%;
-    --popover: 240 10% 3.9%;
-    --popover-foreground: 0 0% 98%;
-    --primary: 329 86% 70%;
-    --primary-foreground: 336 70% 10%;
-    --secondary: 240 3.7% 15.9%;
-    --secondary-foreground: 0 0% 98%;
-    --muted: 240 3.7% 15.9%;
-    --muted-foreground: 240 5% 64.9%;
-    --accent: 336 45% 15%;
-    --accent-foreground: 327 87% 88%;
-    --destructive: 0 84% 68%;
-    --destructive-foreground: 0 70% 10%;
-    --border: 240 3.7% 15.9%;
-    --input: 240 3.7% 15.9%;
-    --ring: 329 86% 70%;
+    --background: 285 16% 7%;
+    --foreground: 300 12% 96%;
+    --card: 285 13% 12%;
+    --card-foreground: 300 12% 96%;
+    --popover: 285 12% 15%;
+    --popover-foreground: 300 12% 96%;
+    --primary: 330 92% 68%;
+    --primary-foreground: 332 80% 9%;
+    --secondary: 285 10% 19%;
+    --secondary-foreground: 300 12% 96%;
+    --muted: 285 10% 16%;
+    --muted-foreground: 290 9% 74%;
+    --accent: 331 52% 22%;
+    --accent-foreground: 330 96% 90%;
+    --destructive: 0 88% 70%;
+    --destructive-foreground: 0 75% 9%;
+    --border: 285 10% 27%;
+    --input: 285 10% 34%;
+    --ring: 330 92% 68%;
+    --glass: 285 14% 15%;
+    --glass-border: 330 70% 86%;
   }
 }

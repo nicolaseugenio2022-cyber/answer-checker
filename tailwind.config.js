@@ -37,6 +37,10 @@ module.exports = {
           DEFAULT: 'hsl(var(--popover))',
           foreground: 'hsl(var(--popover-foreground))',
         },
+        glass: {
+          DEFAULT: 'hsl(var(--glass))',
+          border: 'hsl(var(--glass-border))',
+        },
         card: {
           DEFAULT: 'hsl(var(--card))',
           foreground: 'hsl(var(--card-foreground))',
