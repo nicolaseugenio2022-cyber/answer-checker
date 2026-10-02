@@ -1167,9 +1167,14 @@ describe('Keys navigation', () => {
 
   it('points the Home shortcuts at Keys with answer key wording', () => {
     const home = source('src/features/dashboard/presentation/home-screen.tsx');
-    assert.match(home, /label: 'Create answer key', icon: \w+, href: '\/keys'/);
-    assert.match(home, /title: 'Recent answer keys'/);
-    assert.doesNotMatch(home, /href: '\/exams'|Create exam|Recent exams/);
+    const links = source('src/features/dashboard/presentation/home-links.ts');
+    assert.match(home, /label="Create answer key"/);
+    assert.match(home, /open\(HOME_LINKS\.createAnswerKey\)/);
+    assert.match(links, /createAnswerKey: \{ route: '\/keys', intent: \{ type: 'create' \} \}/);
+    assert.match(home, /heading="Recent answer keys"/);
+    assert.doesNotMatch(home + links, /\/exams|Create exam|Recent exams/);
+    // Home shows real data only: no placeholder wording and no always-empty review row.
+    assert.doesNotMatch(home, /not built|Needs review|Nothing needs review/i);
   });
 
   it('shows no exam wording in any destination label or title', () => {

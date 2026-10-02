@@ -28,6 +28,7 @@ import { usePressFeedback } from '@/core/presentation/hooks/use-press-feedback';
 import { countOf } from '@/core/presentation/lib/describe-name-error';
 import { cn } from '@/core/presentation/lib/utils';
 import { destinationTitle } from '@/core/presentation/navigation/destinations';
+import { takeIntent } from '@/core/presentation/navigation/screen-intent';
 import { tabBarClearance } from '@/core/presentation/navigation/tab-bar-metrics';
 import type { ResultCursor } from '@/features/results/application/results-ports';
 import type { ResultSummary } from '@/features/results/domain/result';
@@ -173,6 +174,9 @@ export function ResultsScreen() {
       ]).then(
         ([page, counts, filterLinks]) => {
           if (!isCurrent()) return;
+          // Opened from Home's recent results: show that result over the list.
+          const intent = takeIntent('results');
+          if (intent) setOpenedId(intent.resultId);
           setLinks(filterLinks);
           // A filtered record may have lost its last result since the filter was set.
           const fitting = withoutIncompatible(filterLinks, filter);

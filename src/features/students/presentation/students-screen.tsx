@@ -24,6 +24,7 @@ import { Icon } from '@/core/presentation/components/ui/icon';
 import { Text } from '@/core/presentation/components/ui/text';
 import { countOf } from '@/core/presentation/lib/describe-name-error';
 import { destinationTitle } from '@/core/presentation/navigation/destinations';
+import { takeIntent } from '@/core/presentation/navigation/screen-intent';
 import { useClassUseCases } from '@/features/classes/presentation/class-use-cases-context';
 import type { RosterDraft } from '@/features/students/application/roster-import';
 import type { StudentWithClass } from '@/features/students/application/student-repository';
@@ -98,7 +99,13 @@ export function StudentsScreen() {
     useCallback(() => {
       let isCurrent = true;
       load().then((result) => {
-        if (isCurrent) setLoaded(result);
+        if (!isCurrent) return;
+        setLoaded(result);
+        // Opened from Home's "Add student". Without a class the screen explains what is missing.
+        const intent = takeIntent('students');
+        if (intent && result.status === 'ready' && result.classes.length > 0) {
+          setForm({ mode: 'add' });
+        }
       });
       return () => {
         isCurrent = false;

@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Answer Checker: an offline-only mobile app (React Native, Expo, TypeScript, Expo Router) for a Teacher to check shaded multiple-choice answer sheets with the phone camera using on-device OMR.
 
-What exists: design system, bottom-tab navigation shell, a Home dashboard of shortcuts and empty states, a Settings screen with a theme switch, a local SQLite database at schema version 7, and the working features Subjects, Classes, Subject-to-Class assignments, Students (with offline CSV roster import), Answer Keys, Scan (camera capture, on-device sheet reading, review, scoring, saving a result), and Results (list with search and filters, result details with the stored scan, permanent deletion). Home still shows no real activity.
+What exists: design system, bottom-tab navigation shell, a Home dashboard that reads real counts and recent activity from the database, a Settings screen with a theme switch, a local SQLite database at schema version 7, and the working features Subjects, Classes, Subject-to-Class assignments, Students (with offline CSV roster import), Answer Keys, Scan (camera capture, on-device sheet reading, review, scoring, saving a result), and Results (list with search and filters, result details with the stored scan, permanent deletion).
 
 Phone-only product, Android first. No desktop or tablet layout, no sidebar, no drawer, no hover-dependent behavior. Web is only a preview of the phone UI (held to a 480-point column in the root layout); a physical Android device is the authority when they differ. `docs/project.md#current-implementation-status` is the record of what is real as of its review date; where later code differs, the code and this file are current.
 
@@ -26,7 +26,7 @@ Decisions that must not be broken:
 - Record IDs are device-generated UUIDs, not auto-increment integers.
 - Not a Next.js or browser-first app. Do not import browser-only `shadcn/ui` or Radix web components.
 - Do not install OpenCV or Drizzle without an explicit decision from the project owner. Drizzle is still undecided.
-- `docs/` is frozen. Agents may read it but must not modify, rename, format, regenerate, or delete anything in it, by any means (editor tools, shell commands, or scripts), unless the user explicitly says to unfreeze it. A request to build or change a feature is not permission to touch `docs/`. When the user temporarily unfreezes it, edits are limited to the authorized documentation task, and the freeze resumes automatically when that task ends, without being told. `.claude/settings.json` denies Edit and Write on `docs/**`; lifting that rule needs the user's explicit approval each time and it must be restored before the task is reported as done. If code and docs drift apart, say so in your report instead of editing the docs, and record new conventions in this file. `docs/` was last synchronized with the code on 2026-10-02 (schema version 7: everything through Results and the development demo data).
+- `docs/` is frozen. Agents may read it but must not modify, rename, format, regenerate, or delete anything in it, by any means (editor tools, shell commands, or scripts), unless the user explicitly says to unfreeze it. A request to build or change a feature is not permission to touch `docs/`. When the user temporarily unfreezes it, edits are limited to the authorized documentation task, and the freeze resumes automatically when that task ends, without being told. `.claude/settings.json` denies Edit and Write on `docs/**`; lifting that rule needs the user's explicit approval each time and it must be restored before the task is reported as done. If code and docs drift apart, say so in your report instead of editing the docs, and record new conventions in this file. `docs/` was last synchronized with the code on 2026-10-02 (schema version 7: everything through Results, the Home dashboard, and the development demo data).
 
 ## Commands
 
@@ -42,7 +42,7 @@ npx @react-native-reusables/cli@latest add <component>       # add a UI componen
 npx expo install <package>     # add an Expo-compatible dependency version
 ```
 
-`npm run test:db` runs every `tests/**/*.test.mjs` file with Node's built-in test runner and `node:sqlite`: `tests/database` (schema, migrations and every upgrade path, repositories, use cases, CSV, roster files) `tests/scan` (template, classification, scoring, PNG codec, the sheet reader on generated photos, scan use cases, result saving, scan files), and `tests/results` (migration 7, list, search, filters, attempts, details, the image store, permanent deletion, what a deletion releases). There is no other test runner and no UI tests. Run with `FORCE_COLOR=0` when filtering the output with grep.
+`npm run test:db` runs every `tests/**/*.test.mjs` file with Node's built-in test runner and `node:sqlite`: `tests/database` (schema, migrations and every upgrade path, repositories, use cases, CSV, roster files) `tests/scan` (template, classification, scoring, PNG codec, the sheet reader on generated photos, scan use cases, result saving, scan files), and `tests/results` (migration 7, list, search, filters, attempts, details, the image store, permanent deletion, what a deletion releases), `tests/dashboard` (counts, the local day, recent lists, Continue scanning, Home's links and intents, newest-reading-only), and `tests/demo-data`. There is no other test runner and no UI tests. Run with `FORCE_COLOR=0` when filtering the output with grep.
 
 `npm run sheet -- <questions> [output.pdf]` writes the printable sheet for that many questions to a PDF on the computer (default `.expo/sheets/`), with the same builder the app uses (`scripts/generate-answer-sheet.mjs`). It is only for looking at a sheet; the app ships no PDF file.
 
@@ -121,7 +121,19 @@ Planned scan order the data must keep supporting: pick a subject, then only clas
 
 `features/demo-data` is a development aid with all four layers: `buildDemoData(now)` (a fixed set of made-up subjects, classes, students, answer keys, and results), `addDemoData` (one transaction, adds nothing if demo data is already there, `DemoDataConflictError` if a demo name is taken), and `removeDemoData` (physically deletes the demo records and everything saved under one). Demo ids start with `DEMO_ID_PREFIX`, names with "Demo", Student IDs with "DEMO-"; demo results have no image file. `DemoDataSection` is rendered in Settings only when `__DEV__` is true and there is a database: it must never appear in a release build, and Home and the other screens must never show demo or sample records on their own.
 
-`dashboard` and `settings` have only a `presentation` folder.
+`features/dashboard` has all four layers and is read-only.
+
+- `createSqliteDashboardRepository` is a read model for Home alone: `counts(today)` (students, classes, answer keys, results, and results captured today, in one statement of aggregates), `recentResults(limit)`, `recentAnswerKeys(limit)` (by `updated_at`, then `created_at`, then id), and `lastScan()`. Four statements however much is stored. It never reads answers or images and never loads a list to count or slice it. Do not build Home from the features' own list use cases.
+- `getDashboard()` never throws. Each part that fails is null and `isIncomplete` is true, so Home shows what could be read with one inline "Try again"; the actions always work.
+- "Today" is the phone's local calendar day: `localDayRange(now)` gives the two local midnights as UTC ISO strings and the count is `captured_at >= start AND captured_at < end`. Timestamps stay UTC in the database.
+- Recent results show the snapshot names; `lastScan` names the records as they are called now and carries the class of the scan.
+- Home's header is the app name, the greeting, and the Settings button. By the project owner's decision it carries no "Works offline" label; do not add one back.
+- Home shows no sample, static, or placeholder numbers. While the first reading is on its way a count is a skeleton bar; a part that failed shows a dash; a real zero is shown as zero. There is no "Needs review" section: a scan cannot be saved with unresolved questions, so nothing is ever waiting. Do not add averages, charts, or pass and fail.
+- Home reads again on every focus (`useFocusEffect`) and never on a timer. `createLatestRequest` (`core/presentation/lib/latest-request.ts`) keeps only the newest reading.
+- `home-links.ts` is the one table of where Home's controls lead.
+- "Continue scanning" appears when a result exists. It leaves a `scan` intent with the subject, answer key, and class of the newest result; the Scan screen passes it to `resumeSession`, which checks all three against the database (subject exists, key belongs to it and fits one sheet, class still assigned) and returns that selection with no student, or the empty selection. It never chooses a student and stores nothing.
+
+`settings` has only a `presentation` folder.
 
 ### Navigation
 
@@ -140,6 +152,7 @@ Planned scan order the data must keep supporting: pick a subject, then only clas
 - Do not combine `contentContainerClassName` with `contentContainerStyle` on a ScrollView. On Android the class replaced the style and dropped the bottom clearance. Put spacing on a plain `View` inside the ScrollView, as `Screen` does.
 - The capsule uses `boxShadow`, not Android `elevation`: elevation shows through a translucent surface and also changes draw order.
 - To add a destination: add it to `destinations.ts`, add a one-line route file in `src/app`, add the screen under `src/features/<feature>/presentation`, and, if it is secondary, link it from the Home screen.
+- One screen tells another what to open through `screen-intent.ts` (`requestIntent(route, intent)` before navigating, `takeIntent(route)` in the target's focus effect once its data is loaded): Keys `create` / `view`, Students `add`, Results `open`, Scan `continue`. An intent is taken once and lives in memory only. Do not use route parameters for this: screens stay mounted, so a parameter would act again on every later visit.
 - Anything that depends on the clock or window size must render a stable value first on web (see `useGreeting`): pages are statically rendered, and a mismatch causes React hydration error #418.
 - The tab bar returns null while the keyboard is open (`useKeyboardHeight` in `core/presentation/hooks`), so it never covers a field in a screen body. `ModalCard` and the full-screen forms add the keyboard height to their bottom padding so their content and Save button stay reachable.
 - List rows use `ItemGroup` / `Item` (`core/presentation/components/item.tsx`), a native take on shadcn Item: whole-row press targets with separators. Status tags use the Reusables `Badge`.

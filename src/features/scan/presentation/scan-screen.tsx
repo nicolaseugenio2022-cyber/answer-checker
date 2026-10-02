@@ -22,6 +22,7 @@ import { usePressFeedback } from '@/core/presentation/hooks/use-press-feedback';
 import { countOf } from '@/core/presentation/lib/describe-name-error';
 import { cn } from '@/core/presentation/lib/utils';
 import { destinationTitle } from '@/core/presentation/navigation/destinations';
+import { takeIntent } from '@/core/presentation/navigation/screen-intent';
 import { DuplicateAttemptError, type PreviousAttempt } from '@/features/scan/application/scan-ports';
 import type { ScanDraft, ScanOptions } from '@/features/scan/application/scan-use-cases';
 import type { ReviewItem } from '@/features/scan/domain/detection';
@@ -152,6 +153,23 @@ export function ScanScreen() {
       // loadAttempt is not read: changing it is what makes "Try again" load again.
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [scan, selection, loadAttempt])
+  );
+
+  // Home's "Continue scanning": start with the subject, answer key, and class
+  // of the last scan, checked against the database, and no student.
+  useFocusEffect(
+    useCallback(() => {
+      if (!scan) return;
+      const intent = takeIntent('scan');
+      if (!intent) return;
+      let isCurrent = true;
+      void scan.resumeSession(intent).then((resumed) => {
+        if (isCurrent) setSelection(resumed);
+      });
+      return () => {
+        isCurrent = false;
+      };
+    }, [scan])
   );
 
   // Once per visit: remove scan files left behind by an interrupted session.

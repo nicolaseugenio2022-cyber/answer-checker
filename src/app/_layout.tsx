@@ -25,6 +25,9 @@ import { ClassSubjectUseCasesProvider } from '@/features/class-subjects/presenta
 import { createClassUseCases } from '@/features/classes/application/class-use-cases';
 import { createSqliteClassRepository } from '@/features/classes/infrastructure/sqlite-class-repository';
 import { ClassUseCasesProvider } from '@/features/classes/presentation/class-use-cases-context';
+import { createDashboardUseCases } from '@/features/dashboard/application/dashboard-use-cases';
+import { createSqliteDashboardRepository } from '@/features/dashboard/infrastructure/sqlite-dashboard-repository';
+import { DashboardUseCasesProvider } from '@/features/dashboard/presentation/dashboard-use-cases-context';
 import { createDemoDataUseCases } from '@/features/demo-data/application/demo-data-use-cases';
 import { createSqliteDemoDataRepository } from '@/features/demo-data/infrastructure/sqlite-demo-data-repository';
 import { DemoDataUseCasesProvider } from '@/features/demo-data/presentation/demo-data-use-cases-context';
@@ -79,6 +82,7 @@ function UseCaseProviders({ children }: PropsWithChildren) {
           clock,
           idGenerator,
         }),
+        dashboard: createDashboardUseCases({ repository: createSqliteDashboardRepository(db) }),
         demoData: createDemoDataUseCases({
           repository: createSqliteDemoDataRepository(db),
           clock,
@@ -121,7 +125,9 @@ function UseCaseProviders({ children }: PropsWithChildren) {
               <ScanUseCasesProvider value={useCases?.scan ?? null}>
                 <ResultsUseCasesProvider value={useCases?.results ?? null}>
                   <DemoDataUseCasesProvider value={useCases?.demoData ?? null}>
-                    {children}
+                    <DashboardUseCasesProvider value={useCases?.dashboard ?? null}>
+                      {children}
+                    </DashboardUseCasesProvider>
                   </DemoDataUseCasesProvider>
                 </ResultsUseCasesProvider>
               </ScanUseCasesProvider>

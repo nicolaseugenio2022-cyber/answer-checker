@@ -9,7 +9,12 @@ import type { StudentRepository, StudentWithClass } from '../../students/applica
 import type { SubjectRepository } from '../../subjects/application/subject-repository';
 import { startReview, unresolvedCount, type ReviewItem } from '../domain/detection';
 import { scoreReview, type Score } from '../domain/scoring';
-import { isComplete, type CompleteSelection, type ScanSelection } from '../domain/selection';
+import {
+  EMPTY_SELECTION,
+  isComplete,
+  type CompleteSelection,
+  type ScanSelection,
+} from '../domain/selection';
 import { buildAnswerSheetPdf } from '../domain/sheet-pdf';
 import {
   MAX_SHEET_QUESTIONS,
@@ -215,6 +220,39 @@ export function createScanUseCases({
     },
 
     validateSelection,
+
+    /**
+     * The selection to continue an earlier scan session with: its subject,
+     * answer key, and class, and no student, so the Teacher chooses the next
+     * student. Each is checked against the database as it is now: the subject
+     * exists, the answer key belongs to it and still fits one sheet, and the
+     * class is still assigned to the subject. If anything no longer holds, or
+     * cannot be read, the empty selection is returned: a clean start. It
+     * never throws.
+     */
+    async resumeSession(session: {
+      subjectId: string;
+      answerKeyId: string;
+      classId: string;
+    }): Promise<ScanSelection> {
+      try {
+        const subject = await subjects.getById(session.subjectId);
+        if (!subject) return EMPTY_SELECTION;
+        const answerKey = await answerKeys.getById(session.answerKeyId);
+        if (!answerKey || answerKey.subjectId !== subject.id) return EMPTY_SELECTION;
+        if (!fitsOneSheet(answerKey.questionCount)) return EMPTY_SELECTION;
+        const classes = await classSubjects.listClassesForSubject(subject.id);
+        if (!classes.some((schoolClass) => schoolClass.id === session.classId)) return EMPTY_SELECTION;
+        return {
+          subjectId: subject.id,
+          answerKeyId: answerKey.id,
+          classId: session.classId,
+          studentId: null,
+        };
+      } catch {
+        return EMPTY_SELECTION;
+      }
+    },
 
     /** Earlier results of the chosen student with the chosen answer key, newest first. */
     async previousAttempts(selection: ScanSelection): Promise<PreviousAttempt[]> {

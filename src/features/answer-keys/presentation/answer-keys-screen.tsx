@@ -26,6 +26,7 @@ import { usePressFeedback } from '@/core/presentation/hooks/use-press-feedback';
 import { countOf } from '@/core/presentation/lib/describe-name-error';
 import { cn } from '@/core/presentation/lib/utils';
 import { destinationTitle } from '@/core/presentation/navigation/destinations';
+import { takeIntent } from '@/core/presentation/navigation/screen-intent';
 import { nameKey } from '@/core/domain/record-name';
 import type { AnswerKeyDetails } from '@/features/answer-keys/application/answer-key-repository';
 import type { AnswerKeyInput } from '@/features/answer-keys/domain/answer-key';
@@ -114,7 +115,25 @@ export function AnswerKeysScreen() {
     useCallback(() => {
       let isCurrent = true;
       load().then((result) => {
-        if (isCurrent) setLoaded(result);
+        if (!isCurrent) return;
+        setLoaded(result);
+        // Opened from Home with something to do, once the list is known.
+        const intent = takeIntent('keys');
+        if (!intent || result.status !== 'ready') return;
+        if (intent.type === 'view') {
+          const answerKey = result.answerKeys.find((key) => key.id === intent.answerKeyId);
+          if (answerKey) setViewed(answerKey);
+        } else if (result.subjects.length > 0) {
+          // Without a subject there is nothing to create under; the screen says so.
+          setForm({
+            mode: 'create',
+            initial: {
+              name: '',
+              subjectId: result.subjects.length === 1 ? result.subjects[0].id : null,
+              answers: Array<null>(DEFAULT_QUESTION_COUNT).fill(null),
+            },
+          });
+        }
       });
       return () => {
         isCurrent = false;
