@@ -6,20 +6,19 @@ import Smartphone from 'lucide-react-native/icons/smartphone';
 import Trash from 'lucide-react-native/icons/trash';
 import { useFocusEffect } from 'expo-router';
 import { useCallback, useState, type ReactNode } from 'react';
-import { AccessibilityInfo, ActivityIndicator, Pressable, View } from 'react-native';
+import { AccessibilityInfo, ActivityIndicator, View } from 'react-native';
 
+import { Callout } from '@/core/presentation/components/callout';
 import { DeleteDialog } from '@/core/presentation/components/delete-dialog';
-import { GLASS_CLASSES } from '@/core/presentation/components/glass-surface';
 import { ItemGroup } from '@/core/presentation/components/item';
 import { NameFormDialog } from '@/core/presentation/components/name-form-dialog';
 import { Notice, type NoticeMessage } from '@/core/presentation/components/notice';
+import { RowAction } from '@/core/presentation/components/row-action';
 import { Screen } from '@/core/presentation/components/screen';
 import { Button } from '@/core/presentation/components/ui/button';
 import { Icon } from '@/core/presentation/components/ui/icon';
 import { Text } from '@/core/presentation/components/ui/text';
-import { usePressFeedback } from '@/core/presentation/hooks/use-press-feedback';
 import type { ErrorDescription } from '@/core/presentation/lib/describe-name-error';
-import { cn } from '@/core/presentation/lib/utils';
 
 export type NamedRecord = {
   id: string;
@@ -340,69 +339,5 @@ export function NameListScreen({
           },
         })}
     </Screen>
-  );
-}
-
-type CalloutProps = {
-  icon: LucideIcon;
-  title: string;
-  tone?: 'neutral' | 'error';
-  /** The explanation, as plain text. */
-  children: ReactNode;
-  action?: ReactNode;
-};
-
-/** The one panel a list state uses to explain itself: empty, failed, or device-only. */
-function Callout({ icon, title, tone = 'neutral', children, action }: CalloutProps) {
-  return (
-    <View className={cn('flex-row items-start gap-3 rounded-lg p-4', GLASS_CLASSES)}>
-      <View
-        className={cn(
-          'h-10 w-10 items-center justify-center rounded-md',
-          tone === 'error' ? 'bg-destructive/15' : 'bg-accent'
-        )}>
-        <Icon
-          as={icon}
-          size={18}
-          className={tone === 'error' ? 'text-destructive' : 'text-accent-foreground'}
-        />
-      </View>
-      <View className="flex-1 gap-1">
-        <Text className="text-[15px] font-semibold leading-[22px]">{title}</Text>
-        <Text className="text-sm leading-5 text-muted-foreground">{children}</Text>
-        {action && <View className="pt-2">{action}</View>}
-      </View>
-    </View>
-  );
-}
-
-type RowActionProps = {
-  icon: LucideIcon;
-  /** Accessible name that includes the record, such as "Rename Mathematics". */
-  label: string;
-  destructive?: boolean;
-  onPress: () => void;
-};
-
-/** A 48dp icon button at the end of a list row. */
-function RowAction({ icon, label, destructive = false, onPress }: RowActionProps) {
-  const { isPressed, pressHandlers } = usePressFeedback();
-
-  return (
-    <Pressable
-      onPress={onPress}
-      {...pressHandlers}
-      accessibilityRole="button"
-      accessibilityLabel={label}
-      className={cn(
-        'h-12 w-12 items-center justify-center rounded-md web:outline-none web:focus-visible:ring-2 web:focus-visible:ring-ring',
-        isPressed && (destructive ? 'bg-destructive/15' : 'bg-secondary')
-      )}>
-      <Icon
-        as={icon}
-        size={20}
-        className={destructive ? 'text-destructive' : 'text-muted-foreground'}
-      />
-    </Pressable>
   );
 }

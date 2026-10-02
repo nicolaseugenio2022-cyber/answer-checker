@@ -2,6 +2,8 @@ import type { PropsWithChildren } from 'react';
 import { Modal, ScrollView, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { useKeyboardHeight } from '@/core/presentation/hooks/use-keyboard-height';
+
 type ModalCardProps = PropsWithChildren<{
   /** Android back button. Must be the safe choice (cancel). */
   onRequestClose: () => void;
@@ -21,6 +23,7 @@ type ModalCardProps = PropsWithChildren<{
  */
 export function ModalCard({ children, onRequestClose, onShow, position = 'center' }: ModalCardProps) {
   const insets = useSafeAreaInsets();
+  const keyboardHeight = useKeyboardHeight();
 
   return (
     <Modal
@@ -39,7 +42,8 @@ export function ModalCard({ children, onRequestClose, onShow, position = 'center
             flexGrow: 1,
             justifyContent: position === 'top' ? 'flex-start' : 'center',
             paddingTop: insets.top + (position === 'top' ? 64 : 16),
-            paddingBottom: insets.bottom + 16,
+            // Room to scroll the whole card above the keyboard.
+            paddingBottom: Math.max(insets.bottom, keyboardHeight) + 16,
             paddingHorizontal: 16,
           }}>
           <View

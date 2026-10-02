@@ -5,8 +5,8 @@ import {
 } from '../../../core/infrastructure/database/sql-connection';
 import type { SchoolClass } from '../../classes/domain/school-class';
 import type { Subject } from '../../subjects/domain/subject';
+import { ClassNotFoundError } from '../../classes/application/class-repository';
 import {
-  ClassNotFoundError,
   SubjectNotFoundError,
   type ClassSubjectRepository,
 } from '../application/class-subject-repository';

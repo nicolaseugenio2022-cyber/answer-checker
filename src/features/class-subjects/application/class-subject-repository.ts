@@ -2,13 +2,7 @@ import { RecordNotFoundError } from '../../../core/application/errors';
 import type { SchoolClass } from '../../classes/domain/school-class';
 import type { Subject } from '../../subjects/domain/subject';
 
-/** The class named in an assignment operation does not exist. */
-export class ClassNotFoundError extends RecordNotFoundError {
-  constructor(id: string) {
-    super(id);
-    this.name = 'ClassNotFoundError';
-  }
-}
+export { ClassNotFoundError } from '../../classes/application/class-repository';
 
 /** A subject named in an assignment operation does not exist. */
 export class SubjectNotFoundError extends RecordNotFoundError {

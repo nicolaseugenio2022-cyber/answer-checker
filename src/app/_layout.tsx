@@ -22,6 +22,11 @@ import { ClassSubjectUseCasesProvider } from '@/features/class-subjects/presenta
 import { createClassUseCases } from '@/features/classes/application/class-use-cases';
 import { createSqliteClassRepository } from '@/features/classes/infrastructure/sqlite-class-repository';
 import { ClassUseCasesProvider } from '@/features/classes/presentation/class-use-cases-context';
+import { createStudentUseCases } from '@/features/students/application/student-use-cases';
+import { expoRosterFileSystem } from '@/features/students/infrastructure/expo-roster-file-system';
+import { createRosterFilePicker } from '@/features/students/infrastructure/roster-file-picker';
+import { createSqliteStudentRepository } from '@/features/students/infrastructure/sqlite-student-repository';
+import { StudentUseCasesProvider } from '@/features/students/presentation/student-use-cases-context';
 import { createSubjectUseCases } from '@/features/subjects/application/subject-use-cases';
 import { createSqliteSubjectRepository } from '@/features/subjects/infrastructure/sqlite-subject-repository';
 import { SubjectUseCasesProvider } from '@/features/subjects/presentation/subject-use-cases-context';
@@ -36,16 +41,20 @@ const idGenerator: IdGenerator = { newId: () => randomUUID() };
  */
 function UseCaseProviders({ children }: PropsWithChildren) {
   const db = useDatabaseIfAvailable();
-  const useCases = useMemo(
-    () =>
-      db && {
+  const useCases = useMemo(() => {
+    if (!db) return null;
+    const classRepository = createSqliteClassRepository(db);
+    return {
         subjects: createSubjectUseCases({
           repository: createSqliteSubjectRepository(db),
           clock,
           idGenerator,
         }),
-        classes: createClassUseCases({
-          repository: createSqliteClassRepository(db),
+        classes: createClassUseCases({ repository: classRepository, clock, idGenerator }),
+        students: createStudentUseCases({
+          repository: createSqliteStudentRepository(db),
+          classRepository,
+          rosterFilePicker: createRosterFilePicker(expoRosterFileSystem),
           clock,
           idGenerator,
         }),
@@ -53,15 +62,16 @@ function UseCaseProviders({ children }: PropsWithChildren) {
           repository: createSqliteClassSubjectRepository(db),
           clock,
         }),
-      },
-    [db]
-  );
+    };
+  }, [db]);
 
   return (
     <SubjectUseCasesProvider value={useCases?.subjects ?? null}>
       <ClassUseCasesProvider value={useCases?.classes ?? null}>
         <ClassSubjectUseCasesProvider value={useCases?.classSubjects ?? null}>
-          {children}
+          <StudentUseCasesProvider value={useCases?.students ?? null}>
+            {children}
+          </StudentUseCasesProvider>
         </ClassSubjectUseCasesProvider>
       </ClassUseCasesProvider>
     </SubjectUseCasesProvider>

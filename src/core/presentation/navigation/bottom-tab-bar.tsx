@@ -15,6 +15,7 @@ import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
 
 import { Icon } from '@/core/presentation/components/ui/icon';
 import { Text } from '@/core/presentation/components/ui/text';
+import { useKeyboardHeight } from '@/core/presentation/hooks/use-keyboard-height';
 import { usePressFeedback } from '@/core/presentation/hooks/use-press-feedback';
 import { THEME } from '@/core/presentation/lib/theme';
 import { cn } from '@/core/presentation/lib/utils';
@@ -230,11 +231,16 @@ function TabItem({ destination, isActive, onPress }: TabItemProps) {
 export function BottomTabBar({ state, navigation, insets }: BottomTabBarProps) {
   const { colorScheme } = useColorScheme();
   const currentRoute = state.routes[state.index]?.name;
+  const isKeyboardOpen = useKeyboardHeight() > 0;
   // A secondary screen (Classes, Subjects, Settings) belongs to Home, so Home
   // stays selected while it is open. The bar never gains a sixth item.
   const selectedRoute = TAB_DESTINATIONS.some((tab) => tab.route === currentRoute)
     ? currentRoute
     : HOME_ROUTE;
+
+  // While the Teacher types in a screen body the bar would sit on top of the
+  // keyboard and cover the field, so it steps aside.
+  if (isKeyboardOpen) return null;
 
   return (
     <>

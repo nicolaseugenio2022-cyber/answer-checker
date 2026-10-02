@@ -131,6 +131,7 @@ describe('fresh database', () => {
       'idx_exams_created_at',
       'idx_exams_subject_id',
       'idx_students_class_id_full_name',
+      'idx_students_student_number',
     ]);
   });
 
@@ -379,7 +380,7 @@ describe('uniqueness constraints', () => {
     rejectsUnique('INSERT INTO classes VALUES (?, ?, ?, ?)', 'cls-2', 'grade 7 - a', NOW, NOW);
   });
 
-  it('rejects a duplicate student number within a class but allows it in another class', () => {
+  it('rejects a duplicate student number in the same class and in another class', () => {
     rejectsUnique(
       'INSERT INTO students VALUES (?, ?, ?, ?, ?, ?)',
       'stu-2',
@@ -389,12 +390,22 @@ describe('uniqueness constraints', () => {
       NOW,
       NOW
     );
+    // Since migration 3 a Student ID is unique across all classes.
     t.run('INSERT INTO classes VALUES (?, ?, ?, ?)', 'cls-2', 'Grade 7 - B', NOW, NOW);
-    t.run(
+    rejectsUnique(
       'INSERT INTO students VALUES (?, ?, ?, ?, ?, ?)',
       'stu-2',
       'cls-2',
       '001',
+      'Student Two',
+      NOW,
+      NOW
+    );
+    t.run(
+      'INSERT INTO students VALUES (?, ?, ?, ?, ?, ?)',
+      'stu-2',
+      'cls-2',
+      '002',
       'Student Two',
       NOW,
       NOW

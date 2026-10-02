@@ -200,8 +200,7 @@ export function HomeScreen() {
           {/* 14dp icon on an 18dp first line: 2dp down centers it on that line. */}
           <Icon as={Info} size={14} className="mt-0.5 text-muted-foreground" />
           <Text className="flex-1 text-[13px] leading-[18px] text-muted-foreground">
-            Scanning, exams, students, and results are not built yet. Each screen explains what it
-            will do.
+            Scanning, exams, and results are not built yet. Each screen explains what it will do.
           </Text>
         </View>
       </View>

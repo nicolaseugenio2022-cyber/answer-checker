@@ -1,5 +1,13 @@
-import { RecordInUseError } from '../../../core/application/errors';
+import { RecordInUseError, RecordNotFoundError } from '../../../core/application/errors';
 import type { SchoolClass } from '../domain/school-class';
+
+/** An operation named a class that does not exist. */
+export class ClassNotFoundError extends RecordNotFoundError {
+  constructor(id: string) {
+    super(id);
+    this.name = 'ClassNotFoundError';
+  }
+}
 
 /** The class cannot be deleted because students belong to it or exams use it. */
 export class ClassInUseError extends RecordInUseError {

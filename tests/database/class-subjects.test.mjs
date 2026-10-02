@@ -70,11 +70,11 @@ function seed() {
 }
 
 describe('migration 2: upgrade paths', () => {
-  it('brings a fresh database to version 2 with the class_subjects table', async () => {
+  it('gives a fresh database the class_subjects table', async () => {
     t = openTestDatabase();
-    assert.equal(await initializeDatabase(t.db), 2);
+    assert.equal(await initializeDatabase(t.db, MIGRATIONS.slice(0, 2)), 2);
     assert.equal(userVersion(), 2);
-    assert.equal(MIGRATIONS.length, 2);
+    assert.ok(MIGRATIONS.length >= 2);
     assert.equal(t.get('SELECT COUNT(*) AS n FROM class_subjects').n, 0);
   });
 
@@ -94,7 +94,7 @@ describe('migration 2: upgrade paths', () => {
       exams: t.all('SELECT * FROM exams ORDER BY id'),
     };
 
-    assert.equal(await initializeDatabase(t.db), 2);
+    assert.equal(await initializeDatabase(t.db, MIGRATIONS.slice(0, 2)), 2);
 
     assert.equal(userVersion(), 2);
     assert.deepEqual(t.all('SELECT * FROM subjects ORDER BY id'), before.subjects);
@@ -113,7 +113,7 @@ describe('migration 2: upgrade paths', () => {
     await initializeDatabase(t.db);
     seed();
     await useCases().assignSubjectToClass('cls-1', 'sub-1');
-    assert.equal(await initializeDatabase(t.db), 2);
+    assert.equal(await initializeDatabase(t.db), MIGRATIONS.length);
     assert.deepEqual(links(), ['cls-1:sub-1']);
   });
 });
