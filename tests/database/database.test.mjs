@@ -20,6 +20,7 @@ const LATEST = MIGRATIONS.length;
 
 const EXPECTED_TABLES = [
   'answer_keys',
+  'class_subjects',
   'classes',
   'exam_questions',
   'exam_results',
@@ -122,6 +123,7 @@ describe('fresh database', () => {
       .map((row) => row.name)
       .sort();
     assert.deepEqual(indexes, [
+      'idx_class_subjects_subject_id',
       'idx_exam_results_created_at',
       'idx_exam_results_exam_id_student_id',
       'idx_exam_results_student_id',
@@ -155,6 +157,8 @@ describe('fresh database', () => {
     }
     assert.deepEqual(rules.sort(), [
       'answer_keys.exam_question_id -> exam_questions.id CASCADE',
+      'class_subjects.class_id -> classes.id CASCADE',
+      'class_subjects.subject_id -> subjects.id CASCADE',
       'exam_questions.exam_id -> exams.id CASCADE',
       'exam_results.exam_id -> exams.id RESTRICT',
       'exam_results.student_id -> students.id RESTRICT',
@@ -166,8 +170,10 @@ describe('fresh database', () => {
     ]);
   });
 
-  it('uses a non-null TEXT primary key named id on every table', () => {
+  it('uses a non-null TEXT primary key named id on every table except the join table', () => {
     for (const table of EXPECTED_TABLES) {
+      // class_subjects is identified by the pair it links, checked in the migration 2 tests.
+      if (table === 'class_subjects') continue;
       const id = t.all(`SELECT * FROM pragma_table_info('${table}')`).find((column) => column.name === 'id');
       assert.ok(id, `${table} has no id column`);
       assert.equal(id.type, 'TEXT', table);

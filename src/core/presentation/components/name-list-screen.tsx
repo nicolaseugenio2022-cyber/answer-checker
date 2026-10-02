@@ -4,7 +4,8 @@ import Pencil from 'lucide-react-native/icons/pencil';
 import Plus from 'lucide-react-native/icons/plus';
 import Smartphone from 'lucide-react-native/icons/smartphone';
 import Trash from 'lucide-react-native/icons/trash';
-import { useEffect, useState } from 'react';
+import { useFocusEffect } from 'expo-router';
+import { useCallback, useState, type ReactNode } from 'react';
 import { AccessibilityInfo, ActivityIndicator, Pressable, View } from 'react-native';
 
 import { DeleteDialog } from '@/core/presentation/components/delete-dialog';
@@ -20,7 +21,30 @@ import { usePressFeedback } from '@/core/presentation/hooks/use-press-feedback';
 import type { ErrorDescription } from '@/core/presentation/lib/describe-name-error';
 import { cn } from '@/core/presentation/lib/utils';
 
-export type NamedRecord = { id: string; name: string };
+export type NamedRecord = {
+  id: string;
+  name: string;
+  /** One short line under the name, such as "3 subjects". */
+  detail?: string;
+};
+
+/** How a dialog opened from a row hands control back to the screen. */
+export type RowDialogControls = {
+  /** Close without a change. */
+  close(): void;
+  /** Close, confirm the change with a notice, and read the list again. */
+  done(message: string): void;
+  /** Close because the record is gone, say so, and read the list again. */
+  missing(message: string): void;
+};
+
+/** One more icon button on every row, which opens a dialog owned by the feature. */
+export type RowDialogAction = {
+  icon: LucideIcon;
+  /** Accessible name that includes the record, such as "Manage subjects for BSIT 1A". */
+  label: (record: NamedRecord) => string;
+  renderDialog: (record: NamedRecord, controls: RowDialogControls) => ReactNode;
+};
 
 /** The use cases of one feature, in the shape this screen needs. */
 export type NameListOperations = {
@@ -49,6 +73,7 @@ type NameListScreenProps = {
   /** Null where there is no database (the web preview). */
   operations: NameListOperations | null;
   describeError: (error: unknown) => ErrorDescription;
+  rowAction?: RowDialogAction;
 };
 
 type ListState =
@@ -80,6 +105,7 @@ export function NameListScreen({
   maxNameLength,
   operations,
   describeError,
+  rowAction,
 }: NameListScreenProps) {
   const { noun, pluralNoun } = copy;
   const [list, setList] = useState<ListState>({ status: 'loading' });
@@ -87,23 +113,31 @@ export function NameListScreen({
   const [form, setForm] = useState<FormState | null>(null);
   const [deletion, setDeletion] = useState<DeleteState | null>(null);
   const [notice, setNotice] = useState<NoticeMessage | null>(null);
+  const [rowDialogRecord, setRowDialogRecord] = useState<NamedRecord | null>(null);
 
-  useEffect(() => {
-    if (!operations) return;
-    let isCurrent = true;
-    operations.list().then(
-      (records) => {
-        if (isCurrent) setList({ status: 'ready', records });
-      },
-      (error) => {
-        console.error(error);
-        if (isCurrent) setList({ status: 'failed' });
-      }
-    );
-    return () => {
-      isCurrent = false;
-    };
-  }, [operations, loadAttempt]);
+  // Loads when the screen opens and again each time it is shown: screens stay
+  // mounted in the tab shell, and another screen may have changed what a row
+  // says (a deleted subject changes a class's subject count).
+  useFocusEffect(
+    useCallback(() => {
+      if (!operations) return;
+      let isCurrent = true;
+      operations.list().then(
+        (records) => {
+          if (isCurrent) setList({ status: 'ready', records });
+        },
+        (error) => {
+          console.error(error);
+          if (isCurrent) setList({ status: 'failed' });
+        }
+      );
+      return () => {
+        isCurrent = false;
+      };
+      // loadAttempt is not read: changing it is what makes "Try again" load again.
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [operations, loadAttempt])
+  );
 
   function retryLoading() {
     setList({ status: 'loading' });
@@ -232,9 +266,21 @@ export function NameListScreen({
           <ItemGroup>
             {list.records.map((record) => (
               <View key={record.id} className="min-h-14 flex-row items-center pl-4 pr-1">
-                <Text className="flex-1 py-2 text-[15px] font-medium leading-[22px]">
-                  {record.name}
-                </Text>
+                <View className="flex-1 py-2">
+                  <Text className="text-[15px] font-medium leading-[22px]">{record.name}</Text>
+                  {record.detail !== undefined && (
+                    <Text className="text-[13px] leading-[18px] text-muted-foreground">
+                      {record.detail}
+                    </Text>
+                  )}
+                </View>
+                {rowAction && (
+                  <RowAction
+                    icon={rowAction.icon}
+                    label={rowAction.label(record)}
+                    onPress={() => setRowDialogRecord(record)}
+                  />
+                )}
                 <RowAction
                   icon={Pencil}
                   label={`Rename ${record.name}`}
@@ -276,6 +322,23 @@ export function NameListScreen({
           onCancel={() => setDeletion(null)}
         />
       )}
+
+      {operations &&
+        rowAction &&
+        rowDialogRecord &&
+        rowAction.renderDialog(rowDialogRecord, {
+          close: () => setRowDialogRecord(null),
+          done: (message) => {
+            setRowDialogRecord(null);
+            announce('success', message);
+            void refresh(operations);
+          },
+          missing: (message) => {
+            setRowDialogRecord(null);
+            announce('error', message);
+            void refresh(operations);
+          },
+        })}
     </Screen>
   );
 }
@@ -285,8 +348,8 @@ type CalloutProps = {
   title: string;
   tone?: 'neutral' | 'error';
   /** The explanation, as plain text. */
-  children: React.ReactNode;
-  action?: React.ReactNode;
+  children: ReactNode;
+  action?: ReactNode;
 };
 
 /** The one panel a list state uses to explain itself: empty, failed, or device-only. */

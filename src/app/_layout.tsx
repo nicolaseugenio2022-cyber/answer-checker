@@ -16,6 +16,9 @@ import {
 } from '@/core/infrastructure/database/database-provider';
 import { NAV_THEME } from '@/core/presentation/lib/theme';
 import { AppTabs } from '@/core/presentation/navigation/app-tabs';
+import { createClassSubjectUseCases } from '@/features/class-subjects/application/class-subject-use-cases';
+import { createSqliteClassSubjectRepository } from '@/features/class-subjects/infrastructure/sqlite-class-subject-repository';
+import { ClassSubjectUseCasesProvider } from '@/features/class-subjects/presentation/class-subject-use-cases-context';
 import { createClassUseCases } from '@/features/classes/application/class-use-cases';
 import { createSqliteClassRepository } from '@/features/classes/infrastructure/sqlite-class-repository';
 import { ClassUseCasesProvider } from '@/features/classes/presentation/class-use-cases-context';
@@ -46,13 +49,21 @@ function UseCaseProviders({ children }: PropsWithChildren) {
           clock,
           idGenerator,
         }),
+        classSubjects: createClassSubjectUseCases({
+          repository: createSqliteClassSubjectRepository(db),
+          clock,
+        }),
       },
     [db]
   );
 
   return (
     <SubjectUseCasesProvider value={useCases?.subjects ?? null}>
-      <ClassUseCasesProvider value={useCases?.classes ?? null}>{children}</ClassUseCasesProvider>
+      <ClassUseCasesProvider value={useCases?.classes ?? null}>
+        <ClassSubjectUseCasesProvider value={useCases?.classSubjects ?? null}>
+          {children}
+        </ClassSubjectUseCasesProvider>
+      </ClassUseCasesProvider>
     </SubjectUseCasesProvider>
   );
 }
