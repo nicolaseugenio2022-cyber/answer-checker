@@ -13,6 +13,12 @@ type ScreenProps = PropsWithChildren<{
   showBack?: boolean;
   /** Drawn over the scrolling body and not scrolled with it, such as a `Notice`. */
   overlay?: ReactNode;
+  /**
+   * False for a screen whose body is its own virtualized list. The body then
+   * fills the screen unpadded, and the list must end with
+   * `tabBarClearance(insets.bottom)` itself.
+   */
+  scrollable?: boolean;
 }>;
 
 /**
@@ -21,7 +27,7 @@ type ScreenProps = PropsWithChildren<{
  * the scene, so the body ends with exactly enough room for its last item to
  * scroll clear of the bar and the gesture area.
  */
-export function Screen({ children, title, showBack, overlay }: ScreenProps) {
+export function Screen({ children, title, showBack, overlay, scrollable = true }: ScreenProps) {
   const insets = useSafeAreaInsets();
 
   return (
@@ -30,25 +36,29 @@ export function Screen({ children, title, showBack, overlay }: ScreenProps) {
       style={{ paddingTop: insets.top, paddingLeft: insets.left, paddingRight: insets.right }}>
       <AppBackdrop />
       {title !== undefined && <ScreenHeader title={title} showBack={showBack} />}
-      <ScrollView
-        style={{ flex: 1 }}
-        keyboardShouldPersistTaps="handled"
-        showsVerticalScrollIndicator={false}>
-        {/*
-          The spacing lives on this plain View, not on the ScrollView's content
-          container. On Android, NativeWind's contentContainerClassName replaced
-          contentContainerStyle, which silently dropped the bottom clearance and
-          left the last content stuck behind the tab bar.
-        */}
-        <View
-          className="w-full max-w-2xl gap-5 self-center px-4"
-          style={{
-            paddingTop: title === undefined ? 12 : 8,
-            paddingBottom: tabBarClearance(insets.bottom),
-          }}>
-          {children}
-        </View>
-      </ScrollView>
+      {scrollable ? (
+        <ScrollView
+          style={{ flex: 1 }}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}>
+          {/*
+            The spacing lives on this plain View, not on the ScrollView's content
+            container. On Android, NativeWind's contentContainerClassName replaced
+            contentContainerStyle, which silently dropped the bottom clearance and
+            left the last content stuck behind the tab bar.
+          */}
+          <View
+            className="w-full max-w-2xl gap-5 self-center px-4"
+            style={{
+              paddingTop: title === undefined ? 12 : 8,
+              paddingBottom: tabBarClearance(insets.bottom),
+            }}>
+            {children}
+          </View>
+        </ScrollView>
+      ) : (
+        <View className="flex-1">{children}</View>
+      )}
       {overlay}
     </View>
   );

@@ -93,7 +93,7 @@ function insertResult(answerKeyId, resultId = `res-${answerKeyId}`) {
   t.run('INSERT OR IGNORE INTO classes VALUES (?, ?, ?, ?)', 'cls-1', 'BSIT 1A', T0, T0);
   t.run('INSERT INTO students VALUES (?, ?, ?, ?, ?, ?)', `stu-${resultId}`, 'cls-1', resultId, 'Student', T0, T0);
   t.run(
-    "INSERT INTO results (id, answer_key_id, student_id, class_id, score, total, template_id, captured_at, created_at) VALUES (?1, ?2, ?3, (SELECT class_id FROM students WHERE id = ?3), ?4, ?5, 'AC-40-V1', ?6, ?6)",
+    "INSERT INTO results (id, answer_key_id, student_id, class_id, score, total, template_id, captured_at, created_at, student_name, student_number, class_name, subject_name, answer_key_name) VALUES (?1, ?2, ?3, (SELECT class_id FROM students WHERE id = ?3), ?4, ?5, 'AC-40-V1', ?6, ?6, 'Student', 'S-1', 'Class', 'Subject', 'Key')",
     resultId,
     answerKeyId,
     `stu-${resultId}`,
@@ -182,7 +182,8 @@ function assertConverted() {
     ]
   );
   // Results keep their ids and now point at the answer key.
-  // ...and, since migration 6, carry the class of the scan and a template id.
+  // ...and, since migration 6, carry the class of the scan and a template id,
+  // and, since migration 7, the names they were saved under.
   assert.deepEqual(plain(t.all('SELECT * FROM results')), [
     {
       id: 'res-1',
@@ -194,6 +195,11 @@ function assertConverted() {
       template_id: 'UNKNOWN',
       captured_at: T1,
       created_at: T1,
+      student_name: 'Maria Santos',
+      student_number: '2026-001',
+      class_name: 'BSIT 1A',
+      subject_name: 'Mathematics',
+      answer_key_name: 'Midterm (BSIT 1A)',
     },
   ]);
   assert.deepEqual(plain(t.all('SELECT * FROM student_answers ORDER BY id')), [

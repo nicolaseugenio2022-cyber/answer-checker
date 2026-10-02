@@ -58,7 +58,7 @@ function insertStudent(id, classId, studentNumber, fullName) {
 function insertResultFor(studentId, classId, resultId = `res-${studentId}`) {
   t.run('INSERT OR IGNORE INTO subjects VALUES (?, ?, ?, ?)', 'sub-1', 'Mathematics', T0, T0);
   t.run('INSERT INTO answer_keys VALUES (?, ?, ?, ?, ?, ?)', `key-${resultId}`, 'sub-1', `Quiz ${resultId}`, 5, T0, T0);
-  t.run("INSERT INTO results (id, answer_key_id, student_id, class_id, score, total, template_id, captured_at, created_at) VALUES (?1, ?2, ?3, (SELECT class_id FROM students WHERE id = ?3), ?4, ?5, 'AC-40-V1', ?6, ?6)", resultId, `key-${resultId}`, studentId, 3, 5, T0);
+  t.run("INSERT INTO results (id, answer_key_id, student_id, class_id, score, total, template_id, captured_at, created_at, student_name, student_number, class_name, subject_name, answer_key_name) VALUES (?1, ?2, ?3, (SELECT class_id FROM students WHERE id = ?3), ?4, ?5, 'AC-40-V1', ?6, ?6, 'Student', 'S-1', 'Class', 'Subject', 'Key')", resultId, `key-${resultId}`, studentId, 3, 5, T0);
 }
 
 /** A picker that never opens; for use cases that do not touch files. */

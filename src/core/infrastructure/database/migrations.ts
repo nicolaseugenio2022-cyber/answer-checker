@@ -4,6 +4,7 @@ import { STUDENT_NUMBER_UNIQUE_SQL } from './migrations/0003-student-number-uniq
 import { ANSWER_KEYS_SQL } from './migrations/0004-answer-keys';
 import { QUESTION_COUNT_UNBOUNDED_SQL } from './migrations/0005-question-count-unbounded';
 import { SCAN_RESULTS_SQL } from './migrations/0006-scan-results';
+import { RESULT_SNAPSHOTS_SQL } from './migrations/0007-result-snapshots';
 import type { Migration } from './run-migrations';
 
 /**
@@ -20,4 +21,5 @@ export const MIGRATIONS: readonly Migration[] = [
   { version: 4, sql: ANSWER_KEYS_SQL },
   { version: 5, sql: QUESTION_COUNT_UNBOUNDED_SQL },
   { version: 6, sql: SCAN_RESULTS_SQL },
+  { version: 7, sql: RESULT_SNAPSHOTS_SQL },
 ];

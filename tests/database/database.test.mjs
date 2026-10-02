@@ -20,7 +20,7 @@ const LATEST = MIGRATIONS.length;
 
 // Results and answers are written with named columns; these keep the tests short.
 const RESULT_INSERT =
-  "INSERT INTO results (id, answer_key_id, student_id, class_id, score, total, template_id, captured_at, created_at) VALUES (?1, ?2, ?3, (SELECT class_id FROM students WHERE id = ?3), ?4, ?5, 'AC-40-V1', ?6, ?6)";
+  "INSERT INTO results (id, answer_key_id, student_id, class_id, score, total, template_id, captured_at, created_at, student_name, student_number, class_name, subject_name, answer_key_name) VALUES (?1, ?2, ?3, (SELECT class_id FROM students WHERE id = ?3), ?4, ?5, 'AC-40-V1', ?6, ?6, 'Student', 'S-1', 'Class', 'Subject', 'Key')";
 const ANSWER_INSERT =
   'INSERT INTO student_answers (id, result_id, question_number, detected_state, detected_answer, final_answer, correct_answer, is_correct, manually_corrected, confidence) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)';
 
@@ -104,8 +104,8 @@ describe('fresh database', () => {
       'idx_answer_keys_subject_id_name',
       'idx_class_subjects_subject_id',
       'idx_results_answer_key_id_student_id',
+      'idx_results_captured_at',
       'idx_results_class_id',
-      'idx_results_created_at',
       'idx_results_student_id',
       'idx_students_class_id_full_name',
       'idx_students_student_number',
@@ -502,7 +502,7 @@ describe('check constraints', () => {
     rejectsCheck(RESULT_INSERT, 'res-2', 'key-1', 'stu-1', 3, 2, NOW);
     rejectsCheck(RESULT_INSERT, 'res-2', 'key-1', 'stu-1', 0, 0, NOW);
     const full =
-      'INSERT INTO results (id, answer_key_id, student_id, class_id, score, total, template_id, captured_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)';
+      "INSERT INTO results (id, answer_key_id, student_id, class_id, score, total, template_id, captured_at, created_at, student_name, student_number, class_name, subject_name, answer_key_name) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'Student', 'S-1', 'Class', 'Subject', 'Key')";
     rejectsCheck(full, 'res-2', 'key-1', 'stu-1', 'cls-1', 1, 2, '', NOW, NOW);
     rejectsCheck(full, 'res-2', 'key-1', 'stu-1', null, 1, 2, 'AC-40-V1', NOW, NOW);
     rejectsCheck(full, 'res-2', 'key-1', 'stu-1', 'cls-1', 1, 2, 'AC-40-V1', 'yesterday', NOW);

@@ -209,10 +209,10 @@ describe('migration 6: results as a scan saves them', () => {
   };
   const reload = () => t.all('SELECT name FROM sqlite_master LIMIT 1');
 
-  it('brings a fresh database to version 6 with the new result columns', async () => {
+  it('brings a database to version 6 with the new result columns', async () => {
     t = openTestDatabase();
-    assert.equal(await initializeDatabase(t.db), 6);
-    assert.equal(LATEST, 6);
+    assert.equal(await initializeDatabase(t.db, MIGRATIONS.slice(0, 6)), 6);
+    assert.ok(LATEST >= 6);
     const columns = (table) => t.all(`SELECT name FROM pragma_table_info('${table}')`).map((c) => c.name);
     assert.deepEqual(columns('results'), [
       'id', 'answer_key_id', 'student_id', 'class_id', 'score', 'total', 'template_id', 'captured_at', 'created_at',
@@ -233,7 +233,7 @@ describe('migration 6: results as a scan saves them', () => {
     const untouched = ['subjects', 'classes', 'students', 'answer_keys', 'answer_key_items', 'scan_records'];
     const before = Object.fromEntries(untouched.map((table) => [table, plain(t.all(`SELECT * FROM ${table} ORDER BY 1, 2`))]));
 
-    assert.equal(await initializeDatabase(t.db), 6);
+    assert.equal(await initializeDatabase(t.db, MIGRATIONS.slice(0, 6)), 6);
     reload();
 
     for (const table of untouched) {
@@ -259,7 +259,7 @@ describe('migration 6: results as a scan saves them', () => {
   it('keeps the delete rules: answers and scan record go with a result, parents are protected', async () => {
     await openVersion5();
     legacyResult();
-    await initializeDatabase(t.db);
+    await initializeDatabase(t.db, MIGRATIONS.slice(0, 6));
     reload();
 
     for (const [table, id] of [['answer_keys', 'key-1'], ['students', 'stu-1'], ['classes', 'cls-1']]) {
@@ -275,7 +275,7 @@ describe('migration 6: results as a scan saves them', () => {
     t.run('INSERT INTO student_answers VALUES (?, ?, ?, ?, ?, ?, ?)', 'ans-9', 'res-1', 9, 'BLANK', null, 0, 0);
     const before = plain(t.all('SELECT * FROM student_answers ORDER BY id'));
 
-    await assert.rejects(initializeDatabase(t.db), (error) => {
+    await assert.rejects(initializeDatabase(t.db, MIGRATIONS.slice(0, 6)), (error) => {
       assert.equal(error.name, 'MigrationFailedError');
       assert.equal(error.version, 6);
       return true;
@@ -289,10 +289,10 @@ describe('migration 6: results as a scan saves them', () => {
   it('does nothing when run again', async () => {
     await openVersion5();
     legacyResult();
-    await initializeDatabase(t.db);
+    await initializeDatabase(t.db, MIGRATIONS.slice(0, 6));
     reload();
     const schema = JSON.stringify(t.all('SELECT type, name, sql FROM sqlite_master ORDER BY type, name'));
-    assert.equal(await initializeDatabase(t.db), 6);
+    assert.equal(await initializeDatabase(t.db, MIGRATIONS.slice(0, 6)), 6);
     assert.equal(JSON.stringify(t.all('SELECT type, name, sql FROM sqlite_master ORDER BY type, name')), schema);
     assert.equal(count('student_answers'), 3);
   });
@@ -551,6 +551,8 @@ describe('saving a result', () => {
       {
         id: 'id-1', answer_key_id: 'key-1', student_id: 'stu-1', class_id: 'cls-1', score: 8, total: 10,
         template_id: 'AC-10-V2', captured_at: T0, created_at: '2026-10-02T08:30:01.000Z',
+        student_name: 'Maria Santos', student_number: '2026-001', class_name: 'BSIT 1A',
+        subject_name: 'Mathematics', answer_key_name: 'Midterm',
       },
     ]);
     const answers = plain(t.all('SELECT * FROM student_answers ORDER BY question_number'));

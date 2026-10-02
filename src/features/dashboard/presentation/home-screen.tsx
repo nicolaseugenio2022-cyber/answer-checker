@@ -4,7 +4,6 @@ import BookOpen from 'lucide-react-native/icons/book-open';
 import ClipboardCheck from 'lucide-react-native/icons/clipboard-check';
 import FilePlus from 'lucide-react-native/icons/file-plus';
 import FileCheck from 'lucide-react-native/icons/file-check';
-import Info from 'lucide-react-native/icons/info';
 import ScanLine from 'lucide-react-native/icons/scan-line';
 import ScanSearch from 'lucide-react-native/icons/scan-search';
 import Settings from 'lucide-react-native/icons/settings';
@@ -58,7 +57,7 @@ const ACTIVITY: readonly ActivityRow[] = [
   },
   {
     title: 'Recent results',
-    emptyMessage: 'No saved results.',
+    emptyMessage: 'Open Results to see saved results.',
     icon: ClipboardCheck,
     action: 'Open',
     href: '/results',
@@ -195,13 +194,6 @@ export function HomeScreen() {
               onPress={() => router.navigate(shortcut.href)}
             />
           ))}
-        </View>
-        <View className="flex-row items-start gap-2 rounded-md bg-muted px-3 py-2">
-          {/* 14dp icon on an 18dp first line: 2dp down centers it on that line. */}
-          <Icon as={Info} size={14} className="mt-0.5 text-muted-foreground" />
-          <Text className="flex-1 text-[13px] leading-[18px] text-muted-foreground">
-            Viewing saved results is not built yet. Scans are saved and will appear there.
-          </Text>
         </View>
       </View>
 

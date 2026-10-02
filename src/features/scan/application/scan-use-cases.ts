@@ -335,6 +335,12 @@ export function createScanUseCases({
           answerKeyId: target.selection.answerKeyId,
           studentId: target.student.id,
           classId: target.selection.classId,
+          // Taken from the records as validated a moment ago, not from the draft.
+          studentName: target.student.fullName,
+          studentNumber: target.student.studentNumber,
+          className: target.className,
+          subjectName: target.subjectName,
+          answerKeyName: target.answerKey.name,
           score: score.score,
           total: score.total,
           templateId: draft.templateId,

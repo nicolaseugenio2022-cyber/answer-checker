@@ -25,6 +25,14 @@ import { ClassSubjectUseCasesProvider } from '@/features/class-subjects/presenta
 import { createClassUseCases } from '@/features/classes/application/class-use-cases';
 import { createSqliteClassRepository } from '@/features/classes/infrastructure/sqlite-class-repository';
 import { ClassUseCasesProvider } from '@/features/classes/presentation/class-use-cases-context';
+import { createDemoDataUseCases } from '@/features/demo-data/application/demo-data-use-cases';
+import { createSqliteDemoDataRepository } from '@/features/demo-data/infrastructure/sqlite-demo-data-repository';
+import { DemoDataUseCasesProvider } from '@/features/demo-data/presentation/demo-data-use-cases-context';
+import { createResultsUseCases } from '@/features/results/application/results-use-cases';
+import { expoResultFileSystem } from '@/features/results/infrastructure/expo-result-file-system';
+import { createResultImageStore } from '@/features/results/infrastructure/result-image-store';
+import { createSqliteResultsRepository } from '@/features/results/infrastructure/sqlite-results-repository';
+import { ResultsUseCasesProvider } from '@/features/results/presentation/results-use-cases-context';
 import { createScanUseCases } from '@/features/scan/application/scan-use-cases';
 import { expoPrintableSheet } from '@/features/scan/infrastructure/expo-printable-sheet';
 import { expoScanFileSystem } from '@/features/scan/infrastructure/expo-scan-file-system';
@@ -71,6 +79,14 @@ function UseCaseProviders({ children }: PropsWithChildren) {
           clock,
           idGenerator,
         }),
+        demoData: createDemoDataUseCases({
+          repository: createSqliteDemoDataRepository(db),
+          clock,
+        }),
+        results: createResultsUseCases({
+          repository: createSqliteResultsRepository(db),
+          images: createResultImageStore(expoResultFileSystem),
+        }),
         subjects: createSubjectUseCases({
           repository: createSqliteSubjectRepository(db),
           clock,
@@ -102,7 +118,13 @@ function UseCaseProviders({ children }: PropsWithChildren) {
         <ClassSubjectUseCasesProvider value={useCases?.classSubjects ?? null}>
           <StudentUseCasesProvider value={useCases?.students ?? null}>
             <AnswerKeyUseCasesProvider value={useCases?.answerKeys ?? null}>
-              <ScanUseCasesProvider value={useCases?.scan ?? null}>{children}</ScanUseCasesProvider>
+              <ScanUseCasesProvider value={useCases?.scan ?? null}>
+                <ResultsUseCasesProvider value={useCases?.results ?? null}>
+                  <DemoDataUseCasesProvider value={useCases?.demoData ?? null}>
+                    {children}
+                  </DemoDataUseCasesProvider>
+                </ResultsUseCasesProvider>
+              </ScanUseCasesProvider>
             </AnswerKeyUseCasesProvider>
           </StudentUseCasesProvider>
         </ClassSubjectUseCasesProvider>

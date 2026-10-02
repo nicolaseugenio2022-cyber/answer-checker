@@ -22,8 +22,9 @@ export function createSqliteResultRepository(db: SqlConnection): ResultRepositor
         runInTransaction(db, async () => {
           await db.runAsync(
             `INSERT INTO results
-               (id, answer_key_id, student_id, class_id, score, total, template_id, captured_at, created_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+               (id, answer_key_id, student_id, class_id, score, total, template_id, captured_at, created_at,
+                student_name, student_number, class_name, subject_name, answer_key_name)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
               result.id,
               result.answerKeyId,
@@ -34,6 +35,11 @@ export function createSqliteResultRepository(db: SqlConnection): ResultRepositor
               result.templateId,
               result.capturedAt,
               result.createdAt,
+              result.studentName,
+              result.studentNumber,
+              result.className,
+              result.subjectName,
+              result.answerKeyName,
             ]
           );
 

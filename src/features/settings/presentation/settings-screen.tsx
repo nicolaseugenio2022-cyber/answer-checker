@@ -1,13 +1,16 @@
 import Moon from 'lucide-react-native/icons/moon';
 import Sun from 'lucide-react-native/icons/sun';
 import { useColorScheme } from 'nativewind';
-import { View } from 'react-native';
+import { useState } from 'react';
+import { AccessibilityInfo, View } from 'react-native';
 
+import { Notice, type NoticeMessage } from '@/core/presentation/components/notice';
 import { Screen } from '@/core/presentation/components/screen';
 import { Button } from '@/core/presentation/components/ui/button';
 import { Icon } from '@/core/presentation/components/ui/icon';
 import { Text } from '@/core/presentation/components/ui/text';
 import { destinationTitle } from '@/core/presentation/navigation/destinations';
+import { DemoDataSection } from '@/features/demo-data/presentation/demo-data-section';
 
 function SectionHeading({ children }: { children: string }) {
   return (
@@ -20,9 +23,20 @@ function SectionHeading({ children }: { children: string }) {
 export function SettingsScreen() {
   const { colorScheme, toggleColorScheme } = useColorScheme();
   const isDark = colorScheme === 'dark';
+  const [notice, setNotice] = useState<NoticeMessage | null>(null);
+
+  function announce(tone: NoticeMessage['tone'], text: string) {
+    setNotice((previous) => ({ id: (previous?.id ?? 0) + 1, tone, text }));
+    AccessibilityInfo.announceForAccessibility(text);
+  }
 
   return (
-    <Screen title={destinationTitle('settings')} showBack>
+    <Screen
+      title={destinationTitle('settings')}
+      showBack
+      overlay={
+        notice && <Notice key={notice.id} notice={notice} onDismiss={() => setNotice(null)} />
+      }>
       <View className="gap-3">
         <SectionHeading>Appearance</SectionHeading>
         <View className="gap-3 rounded-lg border border-border bg-card p-4">
@@ -49,9 +63,8 @@ export function SettingsScreen() {
         </View>
       </View>
 
-      <Text variant="muted">
-        Options for scanning and stored scan images will appear here when those features are built.
-      </Text>
+      {/* Development builds only; renders nothing otherwise. */}
+      <DemoDataSection onDone={announce} />
     </Screen>
   );
 }

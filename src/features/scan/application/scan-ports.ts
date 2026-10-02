@@ -75,6 +75,15 @@ export type NewResult = {
   studentId: string;
   /** The class the student was in when the sheet was scanned. */
   classId: string;
+  /**
+   * The names the result is saved under, as they are at the scan. The result
+   * keeps showing them after a rename or after the student moves.
+   */
+  studentName: string;
+  studentNumber: string;
+  className: string;
+  subjectName: string;
+  answerKeyName: string;
   score: number;
   total: number;
   templateId: string;
