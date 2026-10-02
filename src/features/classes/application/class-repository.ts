@@ -9,16 +9,14 @@ export class ClassNotFoundError extends RecordNotFoundError {
   }
 }
 
-/** The class cannot be deleted because students belong to it or exams use it. */
+/** The class cannot be deleted because students belong to it. */
 export class ClassInUseError extends RecordInUseError {
   readonly studentCount: number;
-  readonly examCount: number;
 
-  constructor(studentCount: number, examCount: number) {
-    super('The class has students or is used by exams.');
+  constructor(studentCount: number) {
+    super('The class has students.');
     this.name = 'ClassInUseError';
     this.studentCount = studentCount;
-    this.examCount = examCount;
   }
 }
 
@@ -38,7 +36,7 @@ export type ClassRepository = {
    */
   rename(id: string, name: string, updatedAt: string): Promise<SchoolClass>;
   /**
-   * Permanently deletes the class. Never deletes students or exams.
+   * Permanently deletes the class. Never deletes students.
    * @throws RecordNotFoundError, ClassInUseError
    */
   delete(id: string): Promise<void>;

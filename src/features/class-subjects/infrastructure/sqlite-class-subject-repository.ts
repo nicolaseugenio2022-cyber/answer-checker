@@ -6,10 +6,8 @@ import {
 import type { SchoolClass } from '../../classes/domain/school-class';
 import type { Subject } from '../../subjects/domain/subject';
 import { ClassNotFoundError } from '../../classes/application/class-repository';
-import {
-  SubjectNotFoundError,
-  type ClassSubjectRepository,
-} from '../application/class-subject-repository';
+import { SubjectNotFoundError } from '../../subjects/application/subject-repository';
+import type { ClassSubjectRepository } from '../application/class-subject-repository';
 
 type NamedRow = { id: string; name: string; created_at: string; updated_at: string };
 type CountRow = { id: string; total: number };

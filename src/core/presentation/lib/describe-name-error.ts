@@ -42,7 +42,7 @@ export function describeNameError(error: unknown, noun: string): ErrorDescriptio
   };
 }
 
-/** "1 exam", "3 exams". */
+/** "1 student", "3 students". */
 export function countOf(count: number, singular: string, plural = `${singular}s`): string {
   return `${count} ${count === 1 ? singular : plural}`;
 }

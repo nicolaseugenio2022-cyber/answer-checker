@@ -19,12 +19,11 @@ const NOW = '2026-10-02T08:30:00.000Z';
 const LATEST = MIGRATIONS.length;
 
 const EXPECTED_TABLES = [
+  'answer_key_items',
   'answer_keys',
   'class_subjects',
   'classes',
-  'exam_questions',
-  'exam_results',
-  'exams',
+  'results',
   'scan_records',
   'student_answers',
   'students',
@@ -42,7 +41,7 @@ afterEach(() => {
   t.close();
 });
 
-/** Inserts one of everything: a subject, class, student, exam with a keyed question, and a result. */
+/** Inserts one of everything: a subject, class, student, answer key with two items, and a result. */
 function seed() {
   t.run('INSERT INTO subjects VALUES (?, ?, ?, ?)', 'sub-1', 'Mathematics', NOW, NOW);
   t.run('INSERT INTO classes VALUES (?, ?, ?, ?)', 'cls-1', 'Grade 7 - A', NOW, NOW);
@@ -55,20 +54,10 @@ function seed() {
     NOW,
     NOW
   );
-  t.run(
-    'INSERT INTO exams VALUES (?, ?, ?, ?, ?, ?, ?)',
-    'exm-1',
-    'sub-1',
-    'cls-1',
-    'Quiz 1',
-    2,
-    NOW,
-    NOW
-  );
-  t.run('INSERT INTO exam_questions VALUES (?, ?, ?, ?, ?)', 'q-1', 'exm-1', 1, 4, 1);
-  t.run('INSERT INTO exam_questions VALUES (?, ?, ?, ?, ?)', 'q-2', 'exm-1', 2, 4, 1);
-  t.run('INSERT INTO answer_keys VALUES (?, ?, ?)', 'key-1', 'q-1', 'B');
-  t.run('INSERT INTO exam_results VALUES (?, ?, ?, ?, ?, ?)', 'res-1', 'exm-1', 'stu-1', 1, 2, NOW);
+  t.run('INSERT INTO answer_keys VALUES (?, ?, ?, ?, ?, ?)', 'key-1', 'sub-1', 'Quiz 1', 2, NOW, NOW);
+  t.run('INSERT INTO answer_key_items VALUES (?, ?, ?)', 'key-1', 1, 'B');
+  t.run('INSERT INTO answer_key_items VALUES (?, ?, ?)', 'key-1', 2, 'D');
+  t.run('INSERT INTO results VALUES (?, ?, ?, ?, ?, ?)', 'res-1', 'key-1', 'stu-1', 1, 2, NOW);
   t.run(
     'INSERT INTO student_answers VALUES (?, ?, ?, ?, ?, ?, ?)',
     'ans-1',
@@ -123,13 +112,12 @@ describe('fresh database', () => {
       .map((row) => row.name)
       .sort();
     assert.deepEqual(indexes, [
+      'idx_answer_keys_created_at',
+      'idx_answer_keys_subject_id_name',
       'idx_class_subjects_subject_id',
-      'idx_exam_results_created_at',
-      'idx_exam_results_exam_id_student_id',
-      'idx_exam_results_student_id',
-      'idx_exams_class_id',
-      'idx_exams_created_at',
-      'idx_exams_subject_id',
+      'idx_results_answer_key_id_student_id',
+      'idx_results_created_at',
+      'idx_results_student_id',
       'idx_students_class_id_full_name',
       'idx_students_student_number',
     ]);
@@ -157,24 +145,22 @@ describe('fresh database', () => {
       }
     }
     assert.deepEqual(rules.sort(), [
-      'answer_keys.exam_question_id -> exam_questions.id CASCADE',
+      'answer_key_items.answer_key_id -> answer_keys.id CASCADE',
+      'answer_keys.subject_id -> subjects.id RESTRICT',
       'class_subjects.class_id -> classes.id CASCADE',
       'class_subjects.subject_id -> subjects.id CASCADE',
-      'exam_questions.exam_id -> exams.id CASCADE',
-      'exam_results.exam_id -> exams.id RESTRICT',
-      'exam_results.student_id -> students.id RESTRICT',
-      'exams.class_id -> classes.id RESTRICT',
-      'exams.subject_id -> subjects.id RESTRICT',
-      'scan_records.result_id -> exam_results.id CASCADE',
-      'student_answers.result_id -> exam_results.id CASCADE',
+      'results.answer_key_id -> answer_keys.id RESTRICT',
+      'results.student_id -> students.id RESTRICT',
+      'scan_records.result_id -> results.id CASCADE',
+      'student_answers.result_id -> results.id CASCADE',
       'students.class_id -> classes.id RESTRICT',
     ]);
   });
 
-  it('uses a non-null TEXT primary key named id on every table except the join table', () => {
+  it('uses a non-null TEXT primary key named id on every table except the two keyed by a pair', () => {
     for (const table of EXPECTED_TABLES) {
-      // class_subjects is identified by the pair it links, checked in the migration 2 tests.
-      if (table === 'class_subjects') continue;
+      // These two are identified by a pair of columns, checked in their own migration tests.
+      if (table === 'class_subjects' || table === 'answer_key_items') continue;
       const id = t.all(`SELECT * FROM pragma_table_info('${table}')`).find((column) => column.name === 'id');
       assert.ok(id, `${table} has no id column`);
       assert.equal(id.type, 'TEXT', table);
@@ -222,7 +208,7 @@ describe('migration runner', () => {
     assert.equal(await initializeDatabase(t.db), LATEST);
     assert.equal(schemaSnapshot(), before);
     assert.equal(userVersion(), LATEST);
-    assert.equal(count('exam_results'), 1);
+    assert.equal(count('results'), 1);
   });
 
   it('applies a later migration without touching earlier ones', async () => {
@@ -295,74 +281,68 @@ describe('foreign-key enforcement', () => {
     );
     assert.throws(
       () =>
-        t.run(
-          'INSERT INTO exam_results VALUES (?, ?, ?, ?, ?, ?)',
-          'res-x',
-          'no-such-exam',
-          'stu-1',
-          0,
-          1,
-          NOW
-        ),
+        t.run('INSERT INTO results VALUES (?, ?, ?, ?, ?, ?)', 'res-x', 'no-such-key', 'stu-1', 0, 1, NOW),
+      /FOREIGN KEY/
+    );
+    assert.throws(
+      () => t.run('INSERT INTO answer_keys VALUES (?, ?, ?, ?, ?, ?)', 'key-x', 'no-such-subject', 'X', 1, NOW, NOW),
+      /FOREIGN KEY/
+    );
+    assert.throws(
+      () => t.run('INSERT INTO answer_key_items VALUES (?, ?, ?)', 'no-such-key', 1, 'A'),
       /FOREIGN KEY/
     );
   });
 
   it('removes a result together with its answers and scan record', () => {
-    t.run('DELETE FROM exam_results WHERE id = ?', 'res-1');
-    assert.equal(count('exam_results'), 0);
+    t.run('DELETE FROM results WHERE id = ?', 'res-1');
+    assert.equal(count('results'), 0);
     assert.equal(count('student_answers'), 0);
     assert.equal(count('scan_records'), 0);
     // Nothing outside the result aggregate is touched.
-    assert.equal(count('exams'), 1);
+    assert.equal(count('answer_keys'), 1);
     assert.equal(count('students'), 1);
-    assert.equal(count('exam_questions'), 2);
+    assert.equal(count('answer_key_items'), 2);
   });
 
-  it('removes an exam that has no results together with its questions and answer keys', () => {
-    t.run('DELETE FROM exam_results WHERE id = ?', 'res-1');
-    t.run('DELETE FROM exams WHERE id = ?', 'exm-1');
-    assert.equal(count('exams'), 0);
-    assert.equal(count('exam_questions'), 0);
+  it('removes an answer key that has no results together with its items and nothing else', () => {
+    t.run('DELETE FROM results WHERE id = ?', 'res-1');
+    t.run('DELETE FROM answer_keys WHERE id = ?', 'key-1');
     assert.equal(count('answer_keys'), 0);
+    assert.equal(count('answer_key_items'), 0);
     assert.equal(count('subjects'), 1);
     assert.equal(count('classes'), 1);
+    assert.equal(count('students'), 1);
   });
 
-  it('removes an answer key when its question is deleted', () => {
-    t.run('DELETE FROM exam_questions WHERE id = ?', 'q-1');
-    assert.equal(count('answer_keys'), 0);
-    assert.equal(count('exam_questions'), 1);
-  });
-
-  it('refuses to delete an exam that still has results', () => {
-    assert.throws(() => t.run('DELETE FROM exams WHERE id = ?', 'exm-1'), /FOREIGN KEY/);
-    assert.equal(count('exams'), 1);
-    assert.equal(count('exam_questions'), 2);
-    assert.equal(count('exam_results'), 1);
+  it('refuses to delete an answer key that still has results', () => {
+    assert.throws(() => t.run('DELETE FROM answer_keys WHERE id = ?', 'key-1'), /FOREIGN KEY/);
+    assert.equal(count('answer_keys'), 1);
+    assert.equal(count('answer_key_items'), 2);
+    assert.equal(count('results'), 1);
   });
 
   it('refuses to delete a student who still has results', () => {
     assert.throws(() => t.run('DELETE FROM students WHERE id = ?', 'stu-1'), /FOREIGN KEY/);
     assert.equal(count('students'), 1);
-    assert.equal(count('exam_results'), 1);
+    assert.equal(count('results'), 1);
   });
 
-  it('refuses to delete a class that still has students or exams', () => {
+  it('refuses to delete a class that still has students', () => {
     assert.throws(() => t.run('DELETE FROM classes WHERE id = ?', 'cls-1'), /FOREIGN KEY/);
     assert.equal(count('classes'), 1);
     assert.equal(count('students'), 1);
   });
 
-  it('refuses to delete a subject that still has exams', () => {
+  it('refuses to delete a subject that still has answer keys', () => {
     assert.throws(() => t.run('DELETE FROM subjects WHERE id = ?', 'sub-1'), /FOREIGN KEY/);
     assert.equal(count('subjects'), 1);
-    assert.equal(count('exams'), 1);
+    assert.equal(count('answer_keys'), 1);
   });
 
   it('allows deleting parents once their dependents are gone', () => {
-    t.run('DELETE FROM exam_results WHERE id = ?', 'res-1');
-    t.run('DELETE FROM exams WHERE id = ?', 'exm-1');
+    t.run('DELETE FROM results WHERE id = ?', 'res-1');
+    t.run('DELETE FROM answer_keys WHERE id = ?', 'key-1');
     t.run('DELETE FROM students WHERE id = ?', 'stu-1');
     t.run('DELETE FROM classes WHERE id = ?', 'cls-1');
     t.run('DELETE FROM subjects WHERE id = ?', 'sub-1');
@@ -413,24 +393,20 @@ describe('uniqueness constraints', () => {
     assert.equal(count('students'), 2);
   });
 
-  it('rejects a duplicate question number in an exam', () => {
-    rejectsUnique('INSERT INTO exam_questions VALUES (?, ?, ?, ?, ?)', 'q-3', 'exm-1', 1, 4, 1);
+  it('rejects a duplicate answer key name in one subject, ignoring case, but allows it in another', () => {
+    const insert = 'INSERT INTO answer_keys VALUES (?, ?, ?, ?, ?, ?)';
+    rejectsUnique(insert, 'key-2', 'sub-1', 'QUIZ 1', 5, NOW, NOW);
+    t.run('INSERT INTO subjects VALUES (?, ?, ?, ?)', 'sub-2', 'Science', NOW, NOW);
+    t.run(insert, 'key-2', 'sub-2', 'Quiz 1', 5, NOW, NOW);
+    assert.equal(count('answer_keys'), 2);
   });
 
-  it('rejects a second answer key for a question', () => {
-    rejectsUnique('INSERT INTO answer_keys VALUES (?, ?, ?)', 'key-2', 'q-1', 'C');
+  it('rejects a second answer for the same question of an answer key', () => {
+    rejectsUnique('INSERT INTO answer_key_items VALUES (?, ?, ?)', 'key-1', 1, 'C');
   });
 
-  it('rejects a second result for the same student and exam', () => {
-    rejectsUnique(
-      'INSERT INTO exam_results VALUES (?, ?, ?, ?, ?, ?)',
-      'res-2',
-      'exm-1',
-      'stu-1',
-      0,
-      2,
-      NOW
-    );
+  it('rejects a second result for the same student and answer key', () => {
+    rejectsUnique('INSERT INTO results VALUES (?, ?, ?, ?, ?, ?)', 'res-2', 'key-1', 'stu-1', 0, 2, NOW);
   });
 
   it('rejects a duplicate answer for a question, and a second scan record, in one result', () => {
@@ -463,11 +439,13 @@ describe('check constraints', () => {
     rejectsCheck('INSERT INTO subjects VALUES (?, ?, ?, ?)', 'sub-2', '   ', NOW, NOW);
     rejectsCheck('INSERT INTO subjects VALUES (?, ?, ?, ?)', null, 'Science', NOW, NOW);
     rejectsCheck('INSERT INTO subjects VALUES (?, ?, ?, ?)', 'sub-2', null, NOW, NOW);
+    rejectsCheck('INSERT INTO answer_keys VALUES (?, ?, ?, ?, ?, ?)', 'key-2', 'sub-1', '  ', 5, NOW, NOW);
   });
 
   it('rejects timestamps that are not UTC ISO-8601 with milliseconds', () => {
     for (const bad of ['2026-10-02', '2026-10-02 08:30:00', '2026-10-02T08:30:00Z', 'now', '']) {
       rejectsCheck('INSERT INTO subjects VALUES (?, ?, ?, ?)', 'sub-2', 'Science', bad, NOW);
+      rejectsCheck('INSERT INTO answer_keys VALUES (?, ?, ?, ?, ?, ?)', 'key-2', 'sub-1', 'Quiz 2', 5, bad, NOW);
     }
     t.run(
       'INSERT INTO subjects VALUES (?, ?, ?, ?)',
@@ -479,51 +457,31 @@ describe('check constraints', () => {
   });
 
   it('rejects values of the wrong type', () => {
-    rejectsCheck(
-      'INSERT INTO exams VALUES (?, ?, ?, ?, ?, ?, ?)',
-      'exm-2',
-      'sub-1',
-      'cls-1',
-      'Quiz 2',
-      'ten',
-      NOW,
-      NOW
-    );
+    rejectsCheck('INSERT INTO answer_keys VALUES (?, ?, ?, ?, ?, ?)', 'key-2', 'sub-1', 'Quiz 2', 'ten', NOW, NOW);
+    rejectsCheck('INSERT INTO answer_key_items VALUES (?, ?, ?)', 'key-1', 'three', 'A');
   });
 
-  it('rejects out-of-range exam and question values', () => {
-    rejectsCheck(
-      'INSERT INTO exams VALUES (?, ?, ?, ?, ?, ?, ?)',
-      'exm-2',
-      'sub-1',
-      'cls-1',
-      'Quiz 2',
-      0,
-      NOW,
-      NOW
-    );
-    rejectsCheck('INSERT INTO exam_questions VALUES (?, ?, ?, ?, ?)', 'q-3', 'exm-1', 0, 4, 1);
-    rejectsCheck('INSERT INTO exam_questions VALUES (?, ?, ?, ?, ?)', 'q-3', 'exm-1', 3, 1, 1);
-    rejectsCheck('INSERT INTO exam_questions VALUES (?, ?, ?, ?, ?)', 'q-3', 'exm-1', 3, 5, 1);
-    rejectsCheck('INSERT INTO exam_questions VALUES (?, ?, ?, ?, ?)', 'q-3', 'exm-1', 3, 4, 0);
+  it('accepts a question count from 1 to 40 and rejects 0 and 41', () => {
+    const insert = 'INSERT INTO answer_keys VALUES (?, ?, ?, ?, ?, ?)';
+    t.run(insert, 'key-2', 'sub-1', 'One', 1, NOW, NOW);
+    t.run(insert, 'key-3', 'sub-1', 'Forty', 40, NOW, NOW);
+    rejectsCheck(insert, 'key-4', 'sub-1', 'Zero', 0, NOW, NOW);
+    rejectsCheck(insert, 'key-4', 'sub-1', 'Forty-one', 41, NOW, NOW);
   });
 
-  it('accepts a choice count from 2 to 4 and defaults to 4', () => {
-    const insert = 'INSERT INTO exam_questions VALUES (?, ?, ?, ?, ?)';
-    t.run(insert, 'q-3', 'exm-1', 3, 2, 1);
-    t.run(insert, 'q-4', 'exm-1', 4, 3, 1);
-    t.run(insert, 'q-5', 'exm-1', 5, 4, 1);
-    t.run('INSERT INTO exam_questions (id, exam_id, question_number) VALUES (?, ?, ?)', 'q-6', 'exm-1', 6);
-    assert.equal(t.get("SELECT choice_count FROM exam_questions WHERE id = 'q-6'").choice_count, 4);
+  it('accepts a question number from 1 to 40 and rejects 0 and 41', () => {
+    const insert = 'INSERT INTO answer_key_items VALUES (?, ?, ?)';
+    t.run(insert, 'key-1', 40, 'A');
+    rejectsCheck(insert, 'key-1', 0, 'A');
+    rejectsCheck(insert, 'key-1', 41, 'A');
   });
 
-  it('accepts each of A, B, C, D as an answer key and as a student answer', () => {
-    t.run('DELETE FROM answer_keys');
+  it('accepts each of A, B, C, D as a correct answer and as a student answer', () => {
+    t.run('DELETE FROM answer_key_items');
     t.run('DELETE FROM student_answers');
     ['A', 'B', 'C', 'D'].forEach((letter, index) => {
       const number = index + 10;
-      t.run('INSERT INTO exam_questions VALUES (?, ?, ?, ?, ?)', `q-${number}`, 'exm-1', number, 4, 1);
-      t.run('INSERT INTO answer_keys VALUES (?, ?, ?)', `key-${number}`, `q-${number}`, letter);
+      t.run('INSERT INTO answer_key_items VALUES (?, ?, ?)', 'key-1', number, letter);
       t.run(
         'INSERT INTO student_answers VALUES (?, ?, ?, ?, ?, ?, ?)',
         `ans-${number}`,
@@ -535,15 +493,15 @@ describe('check constraints', () => {
         0
       );
     });
-    assert.equal(count('answer_keys'), 4);
+    assert.equal(count('answer_key_items'), 4);
     assert.equal(count('student_answers'), 4);
   });
 
-  it('rejects an answer key letter outside A to D, including E', () => {
-    rejectsCheck('INSERT INTO answer_keys VALUES (?, ?, ?)', 'key-2', 'q-2', 'E');
-    rejectsCheck('INSERT INTO answer_keys VALUES (?, ?, ?)', 'key-2', 'q-2', 'F');
-    rejectsCheck('INSERT INTO answer_keys VALUES (?, ?, ?)', 'key-2', 'q-2', 'b');
-    rejectsCheck('INSERT INTO answer_keys VALUES (?, ?, ?)', 'key-2', 'q-2', '');
+  it('rejects a correct answer outside A to D, including E', () => {
+    for (const bad of ['E', 'F', 'b', '', 'AB']) {
+      rejectsCheck('INSERT INTO answer_key_items VALUES (?, ?, ?)', 'key-1', 3, bad);
+    }
+    rejectsCheck('INSERT INTO answer_key_items VALUES (?, ?, ?)', 'key-1', 3, null);
   });
 
   it('rejects E as a student answer', () => {
@@ -560,11 +518,11 @@ describe('check constraints', () => {
   });
 
   it('rejects impossible scores', () => {
-    t.run('DELETE FROM exam_results WHERE id = ?', 'res-1');
-    const insert = 'INSERT INTO exam_results VALUES (?, ?, ?, ?, ?, ?)';
-    rejectsCheck(insert, 'res-2', 'exm-1', 'stu-1', -1, 2, NOW);
-    rejectsCheck(insert, 'res-2', 'exm-1', 'stu-1', 3, 2, NOW);
-    rejectsCheck(insert, 'res-2', 'exm-1', 'stu-1', 0, -1, NOW);
+    t.run('DELETE FROM results WHERE id = ?', 'res-1');
+    const insert = 'INSERT INTO results VALUES (?, ?, ?, ?, ?, ?)';
+    rejectsCheck(insert, 'res-2', 'key-1', 'stu-1', -1, 2, NOW);
+    rejectsCheck(insert, 'res-2', 'key-1', 'stu-1', 3, 2, NOW);
+    rejectsCheck(insert, 'res-2', 'key-1', 'stu-1', 0, -1, NOW);
   });
 
   it('rejects unknown answer states and inconsistent state and letter pairs', () => {
@@ -576,6 +534,7 @@ describe('check constraints', () => {
     rejectsCheck(insert, 'ans-3', 'res-1', 3, 'SELECTED', 'Z', 0, 0);
     rejectsCheck(insert, 'ans-3', 'res-1', 3, 'SELECTED', 'A', 2, 0);
     rejectsCheck(insert, 'ans-3', 'res-1', 3, 'SELECTED', 'A', 1, 5);
+    rejectsCheck(insert, 'ans-3', 'res-1', 41, 'BLANK', null, 0, 0);
     for (const [id, number, state] of [
       ['ans-3', 3, 'MULTIPLE'],
       ['ans-4', 4, 'UNCERTAIN'],
@@ -598,12 +557,12 @@ describe('runInTransaction', () => {
 
   it('commits everything the task wrote and returns its value', async () => {
     const value = await runInTransaction(t.db, async () => {
-      await t.db.execAsync("DELETE FROM exam_results WHERE id = 'res-1'");
-      await t.db.execAsync("DELETE FROM exams WHERE id = 'exm-1'");
+      await t.db.execAsync("DELETE FROM results WHERE id = 'res-1'");
+      await t.db.execAsync("DELETE FROM answer_keys WHERE id = 'key-1'");
       return 'done';
     });
     assert.equal(value, 'done');
-    assert.equal(count('exams'), 0);
+    assert.equal(count('answer_keys'), 0);
     assert.equal(count('student_answers'), 0);
     assert.equal(t.raw.isTransaction, false);
   });
@@ -612,12 +571,12 @@ describe('runInTransaction', () => {
     const failure = new Error('stop');
     await assert.rejects(
       runInTransaction(t.db, async () => {
-        await t.db.execAsync("DELETE FROM exam_results WHERE id = 'res-1'");
+        await t.db.execAsync("DELETE FROM results WHERE id = 'res-1'");
         throw failure;
       }),
       (error) => error === failure
     );
-    assert.equal(count('exam_results'), 1);
+    assert.equal(count('results'), 1);
     assert.equal(count('student_answers'), 2);
     assert.equal(count('scan_records'), 1);
     assert.equal(t.raw.isTransaction, false);
@@ -629,12 +588,12 @@ describe('runInTransaction', () => {
         await t.db.execAsync(
           `INSERT INTO subjects VALUES ('sub-2', 'Science', '${NOW}', '${NOW}')`
         );
-        await t.db.execAsync("DELETE FROM exams WHERE id = 'exm-1'");
+        await t.db.execAsync("DELETE FROM answer_keys WHERE id = 'key-1'");
       }),
       /FOREIGN KEY/
     );
     assert.equal(count('subjects'), 1);
-    assert.equal(count('exams'), 1);
+    assert.equal(count('answer_keys'), 1);
   });
 
   it('runs concurrent transactions one after another, never interleaved', async () => {

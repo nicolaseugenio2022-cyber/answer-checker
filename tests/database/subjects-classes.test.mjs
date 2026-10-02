@@ -94,8 +94,10 @@ function insertStudent(id, classId) {
   t.run('INSERT INTO students VALUES (?, ?, ?, ?, ?, ?)', id, classId, id, `Student ${id}`, T0, T0);
 }
 
-function insertExam(id, subjectId, classId) {
-  t.run('INSERT INTO exams VALUES (?, ?, ?, ?, ?, ?, ?)', id, subjectId, classId, id, 10, T0, T0);
+/** An answer key with one question. */
+function insertAnswerKey(id, subjectId) {
+  t.run('INSERT INTO answer_keys VALUES (?, ?, ?, ?, ?, ?)', id, subjectId, id, 1, T0, T0);
+  t.run('INSERT INTO answer_key_items VALUES (?, ?, ?)', id, 1, 'A');
 }
 
 // One description per feature, so both get the same rules tested the same way.
@@ -437,52 +439,57 @@ for (const feature of FEATURES) {
   });
 }
 
-describe('subjects: deletion blocked by exams', () => {
+describe('subjects: deletion blocked by answer keys', () => {
   const useCases = () => FEATURES[0].build(t.db, deterministicDependencies());
 
-  it('refuses to delete a subject that exams use, and reports how many', async () => {
+  it('refuses to delete a subject that has answer keys, and reports how many', async () => {
     insertSubject('sub-1', 'Mathematics');
     insertSubject('sub-2', 'Science');
-    insertClass('cls-1', 'Grade 7 - A');
-    insertExam('exm-1', 'sub-1', 'cls-1');
-    insertExam('exm-2', 'sub-1', 'cls-1');
-    insertExam('exm-3', 'sub-2', 'cls-1');
+    insertAnswerKey('key-1', 'sub-1');
+    insertAnswerKey('key-2', 'sub-1');
+    insertAnswerKey('key-3', 'sub-2');
 
     await assert.rejects(useCases().remove('sub-1'), (error) => {
       assert.ok(error instanceof SubjectInUseError);
       assert.ok(error instanceof RecordInUseError);
       assert.equal(error.code, 'IN_USE');
-      assert.equal(error.examCount, 2);
+      assert.equal(error.answerKeyCount, 2);
       return true;
     });
 
-    // Nothing was deleted: not the subject, and not its exams.
+    // Nothing was deleted: not the subject, and not its answer keys.
     assert.equal(t.get('SELECT COUNT(*) AS n FROM subjects').n, 2);
-    assert.equal(t.get('SELECT COUNT(*) AS n FROM exams').n, 3);
+    assert.equal(t.get('SELECT COUNT(*) AS n FROM answer_keys').n, 3);
+    assert.equal(t.get('SELECT COUNT(*) AS n FROM answer_key_items').n, 3);
   });
 
-  it('deletes the subject once no exam uses it', async () => {
+  it('deletes the subject once its last answer key is gone', async () => {
     insertSubject('sub-1', 'Mathematics');
-    insertClass('cls-1', 'Grade 7 - A');
-    insertExam('exm-1', 'sub-1', 'cls-1');
+    insertAnswerKey('key-1', 'sub-1');
+    insertAnswerKey('key-2', 'sub-1');
     await assert.rejects(useCases().remove('sub-1'), SubjectInUseError);
 
-    t.run('DELETE FROM exams WHERE id = ?', 'exm-1');
+    t.run('DELETE FROM answer_keys WHERE id = ?', 'key-1');
+    await assert.rejects(useCases().remove('sub-1'), (error) => {
+      assert.equal(error.answerKeyCount, 1);
+      return true;
+    });
+
+    t.run('DELETE FROM answer_keys WHERE id = ?', 'key-2');
     await useCases().remove('sub-1');
     assert.equal(t.get('SELECT COUNT(*) AS n FROM subjects').n, 0);
   });
 });
 
-describe('classes: deletion blocked by students and exams', () => {
+describe('classes: deletion blocked by students', () => {
   const useCases = () => FEATURES[1].build(t.db, deterministicDependencies());
 
-  const assertBlocked = async (studentCount, examCount) => {
+  const assertBlocked = async (studentCount) => {
     await assert.rejects(useCases().remove('cls-1'), (error) => {
       assert.ok(error instanceof ClassInUseError);
       assert.ok(error instanceof RecordInUseError);
       assert.equal(error.code, 'IN_USE');
       assert.equal(error.studentCount, studentCount);
-      assert.equal(error.examCount, examCount);
       return true;
     });
     assert.equal(t.get('SELECT COUNT(*) AS n FROM classes WHERE id = ?', 'cls-1').n, 1);
@@ -499,37 +506,27 @@ describe('classes: deletion blocked by students and exams', () => {
     insertStudent('stu-2', 'cls-1');
     insertStudent('stu-3', 'cls-2');
 
-    await assertBlocked(2, 0);
+    await assertBlocked(2);
     assert.equal(t.get('SELECT COUNT(*) AS n FROM students').n, 3);
   });
 
-  it('refuses to delete a class that exams use, and reports how many', async () => {
-    insertExam('exm-1', 'sub-1', 'cls-1');
-    insertExam('exm-2', 'sub-1', 'cls-2');
+  it('is not blocked by answer keys, which no longer belong to a class', async () => {
+    insertAnswerKey('key-1', 'sub-1');
 
-    await assertBlocked(0, 1);
-    assert.equal(t.get('SELECT COUNT(*) AS n FROM exams').n, 2);
+    await useCases().remove('cls-1');
+
+    assert.deepEqual(
+      t.all('SELECT id FROM classes').map((row) => row.id),
+      ['cls-2']
+    );
+    assert.equal(t.get('SELECT COUNT(*) AS n FROM answer_keys').n, 1);
   });
 
-  it('reports both counts accurately when students and exams exist', async () => {
-    for (const id of ['stu-1', 'stu-2', 'stu-3']) insertStudent(id, 'cls-1');
-    insertStudent('stu-4', 'cls-2');
-    insertExam('exm-1', 'sub-1', 'cls-1');
-    insertExam('exm-2', 'sub-1', 'cls-1');
-    insertExam('exm-3', 'sub-1', 'cls-2');
-
-    await assertBlocked(3, 2);
-    assert.equal(t.get('SELECT COUNT(*) AS n FROM students').n, 4);
-    assert.equal(t.get('SELECT COUNT(*) AS n FROM exams').n, 3);
-  });
-
-  it('deletes the class once it has no students and no exams', async () => {
+  it('deletes the class once it has no students', async () => {
     insertStudent('stu-1', 'cls-1');
-    insertExam('exm-1', 'sub-1', 'cls-1');
-    await assertBlocked(1, 1);
+    await assertBlocked(1);
 
     t.run('DELETE FROM students WHERE id = ?', 'stu-1');
-    t.run('DELETE FROM exams WHERE id = ?', 'exm-1');
     await useCases().remove('cls-1');
 
     assert.deepEqual(

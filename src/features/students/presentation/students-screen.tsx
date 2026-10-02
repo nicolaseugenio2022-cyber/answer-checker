@@ -1,5 +1,4 @@
 import { useFocusEffect } from 'expo-router';
-import Check from 'lucide-react-native/icons/check';
 import CircleAlert from 'lucide-react-native/icons/circle-alert';
 import FileUp from 'lucide-react-native/icons/file-up';
 import GraduationCap from 'lucide-react-native/icons/graduation-cap';
@@ -9,23 +8,21 @@ import Smartphone from 'lucide-react-native/icons/smartphone';
 import Trash from 'lucide-react-native/icons/trash';
 import UserPlus from 'lucide-react-native/icons/user-plus';
 import Users from 'lucide-react-native/icons/users';
-import X from 'lucide-react-native/icons/x';
 import { useCallback, useState } from 'react';
-import { AccessibilityInfo, ActivityIndicator, Pressable, ScrollView, View } from 'react-native';
+import { AccessibilityInfo, ActivityIndicator, ScrollView, View } from 'react-native';
 
 import { Callout } from '@/core/presentation/components/callout';
 import { DeleteDialog } from '@/core/presentation/components/delete-dialog';
+import { FilterChip } from '@/core/presentation/components/filter-chip';
 import { ItemGroup } from '@/core/presentation/components/item';
 import { Notice, type NoticeMessage } from '@/core/presentation/components/notice';
 import { RowAction } from '@/core/presentation/components/row-action';
 import { Screen } from '@/core/presentation/components/screen';
+import { SearchField } from '@/core/presentation/components/search-field';
 import { Button } from '@/core/presentation/components/ui/button';
 import { Icon } from '@/core/presentation/components/ui/icon';
-import { Input } from '@/core/presentation/components/ui/input';
 import { Text } from '@/core/presentation/components/ui/text';
-import { usePressFeedback } from '@/core/presentation/hooks/use-press-feedback';
 import { countOf } from '@/core/presentation/lib/describe-name-error';
-import { cn } from '@/core/presentation/lib/utils';
 import { destinationTitle } from '@/core/presentation/navigation/destinations';
 import { useClassUseCases } from '@/features/classes/presentation/class-use-cases-context';
 import type { RosterDraft } from '@/features/students/application/roster-import';
@@ -294,26 +291,12 @@ export function StudentsScreen() {
       ) : (
         <>
           <View className="gap-3">
-            <View className="justify-center">
-              <Input
-                value={search}
-                onChangeText={setSearch}
-                placeholder="Search by name or Student ID"
-                accessibilityLabel="Search students by name or Student ID"
-                autoCapitalize="none"
-                autoCorrect={false}
-                returnKeyType="search"
-                className="pl-10 pr-12"
-              />
-              <View pointerEvents="none" className="absolute left-3">
-                <Icon as={Search} size={18} className="text-muted-foreground" />
-              </View>
-              {search.length > 0 && (
-                <View className="absolute right-0">
-                  <ClearSearch onPress={() => setSearch('')} />
-                </View>
-              )}
-            </View>
+            <SearchField
+              value={search}
+              onChangeText={setSearch}
+              placeholder="Search by name or Student ID"
+              accessibilityLabel="Search students by name or Student ID"
+            />
 
             <ScrollView
               horizontal
@@ -324,13 +307,13 @@ export function StudentsScreen() {
               // The chips scroll to the screen edges, past the screen's own padding.
               style={{ marginHorizontal: -16 }}
               contentContainerStyle={{ paddingHorizontal: 16, gap: 8 }}>
-              <ClassChip
+              <FilterChip
                 label="All classes"
                 isSelected={activeFilter === null}
                 onPress={() => setClassFilter(null)}
               />
               {classes.map((schoolClass) => (
-                <ClassChip
+                <FilterChip
                   key={schoolClass.id}
                   label={schoolClass.name}
                   isSelected={activeFilter === schoolClass.id}
@@ -444,61 +427,5 @@ export function StudentsScreen() {
         <RosterImportDialog draft={draft} onConfirm={importRoster} onCancel={() => setDraft(null)} />
       )}
     </Screen>
-  );
-}
-
-/** A filter chip. The chosen one is filled and carries a check, not only a color. */
-function ClassChip({
-  label,
-  isSelected,
-  onPress,
-}: {
-  label: string;
-  isSelected: boolean;
-  onPress: () => void;
-}) {
-  const { isPressed, pressHandlers } = usePressFeedback();
-
-  return (
-    <Pressable
-      onPress={onPress}
-      {...pressHandlers}
-      hitSlop={{ top: 2, bottom: 2 }}
-      role="radio"
-      aria-checked={isSelected}
-      accessibilityLabel={label}
-      className={cn(
-        'h-11 flex-row items-center gap-1.5 rounded-full border px-4 web:outline-none web:focus-visible:ring-2 web:focus-visible:ring-ring',
-        isSelected ? 'border-primary bg-primary' : 'border-border bg-card',
-        isPressed && !isSelected && 'bg-secondary',
-        isPressed && isSelected && 'opacity-80'
-      )}>
-      {isSelected && <Icon as={Check} size={14} strokeWidth={3} className="text-primary-foreground" />}
-      <Text
-        className={cn(
-          'text-sm font-medium',
-          isSelected ? 'text-primary-foreground' : 'text-foreground'
-        )}>
-        {label}
-      </Text>
-    </Pressable>
-  );
-}
-
-function ClearSearch({ onPress }: { onPress: () => void }) {
-  const { isPressed, pressHandlers } = usePressFeedback();
-
-  return (
-    <Pressable
-      onPress={onPress}
-      {...pressHandlers}
-      accessibilityRole="button"
-      accessibilityLabel="Clear search"
-      className={cn(
-        'h-12 w-12 items-center justify-center rounded-md web:outline-none web:focus-visible:ring-2 web:focus-visible:ring-ring',
-        isPressed && 'bg-foreground/10'
-      )}>
-      <Icon as={X} size={18} className="text-muted-foreground" />
-    </Pressable>
   );
 }

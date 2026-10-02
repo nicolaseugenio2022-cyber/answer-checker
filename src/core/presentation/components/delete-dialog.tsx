@@ -9,6 +9,8 @@ type DeleteDialogProps = {
   name: string;
   /** What the record is, in lower case: "subject", "class". */
   noun: string;
+  /** One more line that identifies the record, such as its subject. */
+  detail?: string;
   isDeleting: boolean;
   /** Set when other records depend on this one. The dialog then only explains and closes. */
   blockedMessage: string | null;
@@ -25,6 +27,7 @@ type DeleteDialogProps = {
 export function DeleteDialog({
   name,
   noun,
+  detail,
   isDeleting,
   blockedMessage,
   failureMessage,
@@ -59,6 +62,7 @@ export function DeleteDialog({
         <Text role="heading" aria-level="2" className="text-lg font-semibold leading-6">
           Delete “{name}”?
         </Text>
+        {detail !== undefined && <Text className="text-[15px] leading-[22px]">{detail}</Text>}
         <Text className="text-[15px] leading-[22px] text-muted-foreground">
           This permanently deletes the {noun} from this device. It cannot be undone.
         </Text>

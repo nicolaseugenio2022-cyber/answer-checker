@@ -203,12 +203,12 @@ export function createSqliteStudentRepository(db: SqlConnection): StudentReposit
         runInTransaction(db, async () => {
           if (!(await find(id))) throw new RecordNotFoundError(id);
           const usage = await db.getFirstAsync<{ result_count: number }>(
-            'SELECT COUNT(*) AS result_count FROM exam_results WHERE student_id = ?',
+            'SELECT COUNT(*) AS result_count FROM results WHERE student_id = ?',
             [id]
           );
           const resultCount = usage?.result_count ?? 0;
           if (resultCount > 0) throw new StudentInUseError(resultCount);
-          // A physical delete. ON DELETE RESTRICT on exam_results.student_id still guards it.
+          // A physical delete. ON DELETE RESTRICT on results.student_id still guards it.
           await db.runAsync('DELETE FROM students WHERE id = ?', [id]);
         })
       );

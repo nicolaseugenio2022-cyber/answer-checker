@@ -1,14 +1,22 @@
-import { RecordInUseError } from '../../../core/application/errors';
+import { RecordInUseError, RecordNotFoundError } from '../../../core/application/errors';
 import type { Subject } from '../domain/subject';
 
-/** The subject cannot be deleted because exams use it. */
-export class SubjectInUseError extends RecordInUseError {
-  readonly examCount: number;
+/** An operation named a subject that does not exist. */
+export class SubjectNotFoundError extends RecordNotFoundError {
+  constructor(id: string) {
+    super(id);
+    this.name = 'SubjectNotFoundError';
+  }
+}
 
-  constructor(examCount: number) {
-    super('The subject is used by exams.');
+/** The subject cannot be deleted because answer keys belong to it. */
+export class SubjectInUseError extends RecordInUseError {
+  readonly answerKeyCount: number;
+
+  constructor(answerKeyCount: number) {
+    super('The subject has answer keys.');
     this.name = 'SubjectInUseError';
-    this.examCount = examCount;
+    this.answerKeyCount = answerKeyCount;
   }
 }
 
@@ -28,7 +36,7 @@ export type SubjectRepository = {
    */
   rename(id: string, name: string, updatedAt: string): Promise<Subject>;
   /**
-   * Permanently deletes the subject. Never deletes exams.
+   * Permanently deletes the subject. Never deletes answer keys.
    * @throws RecordNotFoundError, SubjectInUseError
    */
   delete(id: string): Promise<void>;

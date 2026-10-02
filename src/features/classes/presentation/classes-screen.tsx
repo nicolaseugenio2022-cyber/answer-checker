@@ -30,19 +30,11 @@ const COPY: NameListCopy = {
   namePlaceholder: 'BSIT 1A',
 };
 
-/** "This class contains 24 students and is used by 2 exams." */
-function describeClassUse({ studentCount, examCount }: ClassInUseError): string {
-  const parts: string[] = [];
-  if (studentCount > 0) parts.push(`contains ${countOf(studentCount, 'student')}`);
-  if (examCount > 0) parts.push(`is used by ${countOf(examCount, 'exam')}`);
-  return `This class ${parts.join(' and ')}.`;
-}
-
 function describeClassError(error: unknown): ErrorDescription {
   if (error instanceof ClassInUseError) {
     return {
       kind: 'blocked',
-      message: `${describeClassUse(error)} A class can be deleted only when it has no students and no exams.`,
+      message: `This class contains ${countOf(error.studentCount, 'student')}. Move or delete those students first; then the class can be deleted.`,
     };
   }
   return describeNameError(error, COPY.noun);

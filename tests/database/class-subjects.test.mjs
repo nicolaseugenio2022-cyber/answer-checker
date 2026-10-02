@@ -455,27 +455,26 @@ describe('class_subjects', () => {
       assert.equal(t.get('SELECT COUNT(*) AS n FROM students').n, 1);
     });
 
-    it('still refuses to delete a class or subject that an exam uses, and keeps assignments', async () => {
-      t.run('INSERT INTO exams VALUES (?, ?, ?, ?, ?, ?, ?)', 'exm-1', 'sub-1', 'cls-1', 'Quiz', 5, T0, T0);
+    it('still refuses to delete a subject that has an answer key, and keeps assignments', async () => {
+      t.run('INSERT INTO answer_keys VALUES (?, ?, ?, ?, ?, ?)', 'key-1', 'sub-1', 'Quiz', 1, T0, T0);
 
-      await assert.rejects(classUseCases().deleteClass('cls-1'), ClassInUseError);
       await assert.rejects(subjectUseCases().deleteSubject('sub-1'), (error) => {
         assert.ok(error instanceof SubjectInUseError);
-        assert.equal(error.examCount, 1);
+        assert.equal(error.answerKeyCount, 1);
         return true;
       });
       assert.deepEqual(links(), ['cls-1:sub-1', 'cls-1:sub-2', 'cls-2:sub-1', 'cls-2:sub-3']);
-      assert.equal(t.get('SELECT COUNT(*) AS n FROM exams').n, 1);
+      assert.equal(t.get('SELECT COUNT(*) AS n FROM answer_keys').n, 1);
     });
 
-    it('removing an assignment never deletes a class, subject, student, or exam', async () => {
+    it('removing an assignment never deletes a class, subject, student, or answer key', async () => {
       t.run('INSERT INTO students VALUES (?, ?, ?, ?, ?, ?)', 'stu-1', 'cls-1', '001', 'A', T0, T0);
-      t.run('INSERT INTO exams VALUES (?, ?, ?, ?, ?, ?, ?)', 'exm-1', 'sub-1', 'cls-1', 'Quiz', 5, T0, T0);
+      t.run('INSERT INTO answer_keys VALUES (?, ?, ?, ?, ?, ?)', 'key-1', 'sub-1', 'Quiz', 1, T0, T0);
 
       await useCases().replaceSubjectsForClass('cls-1', []);
 
       assert.deepEqual(links(), ['cls-2:sub-1', 'cls-2:sub-3']);
-      for (const [table, expected] of [['classes', 3], ['subjects', 3], ['students', 1], ['exams', 1]]) {
+      for (const [table, expected] of [['classes', 3], ['subjects', 3], ['students', 1], ['answer_keys', 1]]) {
         assert.equal(t.get(`SELECT COUNT(*) AS n FROM ${table}`).n, expected, table);
       }
     });

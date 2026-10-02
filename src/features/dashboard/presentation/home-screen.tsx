@@ -3,7 +3,7 @@ import type { LucideIcon } from 'lucide-react-native';
 import BookOpen from 'lucide-react-native/icons/book-open';
 import ClipboardCheck from 'lucide-react-native/icons/clipboard-check';
 import FilePlus from 'lucide-react-native/icons/file-plus';
-import FileText from 'lucide-react-native/icons/file-text';
+import FileCheck from 'lucide-react-native/icons/file-check';
 import Info from 'lucide-react-native/icons/info';
 import ScanLine from 'lucide-react-native/icons/scan-line';
 import ScanSearch from 'lucide-react-native/icons/scan-search';
@@ -25,7 +25,7 @@ import { useGreeting } from './greeting';
 type Shortcut = { label: string; description?: string; icon: LucideIcon; href: Href };
 
 const SHORTCUTS: readonly Shortcut[] = [
-  { label: 'Create exam', icon: FilePlus, href: '/exams' },
+  { label: 'Create answer key', icon: FilePlus, href: '/keys' },
   { label: 'Add student', icon: UserPlus, href: '/students' },
   { label: 'View results', icon: ClipboardCheck, href: '/results' },
   { label: 'Manage classes', icon: Users, href: '/classes' },
@@ -39,8 +39,8 @@ type ActivityRow = {
   href: Href;
 };
 
-// No exams, scans, or results can exist yet: the database has no tables. These
-// rows always show their empty state until those features store data.
+// Home does not read data yet, so these rows always show their empty state.
+// Showing real activity here is a later stage.
 const ACTIVITY: readonly ActivityRow[] = [
   {
     title: 'Needs review',
@@ -50,11 +50,11 @@ const ACTIVITY: readonly ActivityRow[] = [
     href: '/scan',
   },
   {
-    title: 'Recent exams',
-    emptyMessage: 'No exams yet.',
-    icon: FileText,
-    action: 'Create',
-    href: '/exams',
+    title: 'Recent answer keys',
+    emptyMessage: 'Open Keys to see your answer keys.',
+    icon: FileCheck,
+    action: 'Open',
+    href: '/keys',
   },
   {
     title: 'Recent results',
@@ -200,7 +200,7 @@ export function HomeScreen() {
           {/* 14dp icon on an 18dp first line: 2dp down centers it on that line. */}
           <Icon as={Info} size={14} className="mt-0.5 text-muted-foreground" />
           <Text className="flex-1 text-[13px] leading-[18px] text-muted-foreground">
-            Scanning, exams, and results are not built yet. Each screen explains what it will do.
+            Scanning and results are not built yet. Each screen explains what it will do.
           </Text>
         </View>
       </View>

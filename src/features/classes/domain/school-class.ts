@@ -2,7 +2,7 @@
  * A class: one complete group of students. Its single name carries the grade
  * or year, the course or strand, and the section, for example "Grade 11 STEM-A"
  * or "BSIT 1A". There are no separate course, strand, grade, or section fields.
- * A student belongs to one class; an exam belongs to one subject and one class.
+ * A student belongs to one class. An answer key does not belong to a class.
  *
  * Named SchoolClass because `class` is a reserved word and `Class` reads like
  * a language construct.

@@ -30,7 +30,7 @@ function describeSubjectError(error: unknown): ErrorDescription {
   if (error instanceof SubjectInUseError) {
     return {
       kind: 'blocked',
-      message: `This subject is used by ${countOf(error.examCount, 'exam')}. A subject can be deleted only when no exam uses it.`,
+      message: `This subject has ${countOf(error.answerKeyCount, 'answer key')}. Delete those answer keys permanently first; then the subject can be deleted.`,
     };
   }
   return describeNameError(error, COPY.noun);

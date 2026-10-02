@@ -16,6 +16,9 @@ import {
 } from '@/core/infrastructure/database/database-provider';
 import { NAV_THEME } from '@/core/presentation/lib/theme';
 import { AppTabs } from '@/core/presentation/navigation/app-tabs';
+import { createAnswerKeyUseCases } from '@/features/answer-keys/application/answer-key-use-cases';
+import { createSqliteAnswerKeyRepository } from '@/features/answer-keys/infrastructure/sqlite-answer-key-repository';
+import { AnswerKeyUseCasesProvider } from '@/features/answer-keys/presentation/answer-key-use-cases-context';
 import { createClassSubjectUseCases } from '@/features/class-subjects/application/class-subject-use-cases';
 import { createSqliteClassSubjectRepository } from '@/features/class-subjects/infrastructure/sqlite-class-subject-repository';
 import { ClassSubjectUseCasesProvider } from '@/features/class-subjects/presentation/class-subject-use-cases-context';
@@ -51,6 +54,11 @@ function UseCaseProviders({ children }: PropsWithChildren) {
           idGenerator,
         }),
         classes: createClassUseCases({ repository: classRepository, clock, idGenerator }),
+        answerKeys: createAnswerKeyUseCases({
+          repository: createSqliteAnswerKeyRepository(db),
+          clock,
+          idGenerator,
+        }),
         students: createStudentUseCases({
           repository: createSqliteStudentRepository(db),
           classRepository,
@@ -70,7 +78,9 @@ function UseCaseProviders({ children }: PropsWithChildren) {
       <ClassUseCasesProvider value={useCases?.classes ?? null}>
         <ClassSubjectUseCasesProvider value={useCases?.classSubjects ?? null}>
           <StudentUseCasesProvider value={useCases?.students ?? null}>
-            {children}
+            <AnswerKeyUseCasesProvider value={useCases?.answerKeys ?? null}>
+              {children}
+            </AnswerKeyUseCasesProvider>
           </StudentUseCasesProvider>
         </ClassSubjectUseCasesProvider>
       </ClassUseCasesProvider>

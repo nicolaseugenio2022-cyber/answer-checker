@@ -103,13 +103,13 @@ export function createSqliteSubjectRepository(db: SqlConnection): SubjectReposit
       return withTypedErrors('delete the subject', () =>
         runInTransaction(db, async () => {
           if (!(await find(id))) throw new RecordNotFoundError(id);
-          const usage = await db.getFirstAsync<{ exam_count: number }>(
-            'SELECT COUNT(*) AS exam_count FROM exams WHERE subject_id = ?',
+          const usage = await db.getFirstAsync<{ answer_key_count: number }>(
+            'SELECT COUNT(*) AS answer_key_count FROM answer_keys WHERE subject_id = ?',
             [id]
           );
-          const examCount = usage?.exam_count ?? 0;
-          if (examCount > 0) throw new SubjectInUseError(examCount);
-          // A physical delete. ON DELETE RESTRICT on exams.subject_id still guards it.
+          const answerKeyCount = usage?.answer_key_count ?? 0;
+          if (answerKeyCount > 0) throw new SubjectInUseError(answerKeyCount);
+          // A physical delete. ON DELETE RESTRICT on answer_keys.subject_id still guards it.
           await db.runAsync('DELETE FROM subjects WHERE id = ?', [id]);
         })
       );

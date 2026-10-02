@@ -1,16 +1,9 @@
-import { RecordNotFoundError } from '../../../core/application/errors';
 import type { SchoolClass } from '../../classes/domain/school-class';
 import type { Subject } from '../../subjects/domain/subject';
 
 export { ClassNotFoundError } from '../../classes/application/class-repository';
 
-/** A subject named in an assignment operation does not exist. */
-export class SubjectNotFoundError extends RecordNotFoundError {
-  constructor(id: string) {
-    super(id);
-    this.name = 'SubjectNotFoundError';
-  }
-}
+export { SubjectNotFoundError } from '../../subjects/application/subject-repository';
 
 /**
  * Local storage for "this subject is taught to this class". Every method that

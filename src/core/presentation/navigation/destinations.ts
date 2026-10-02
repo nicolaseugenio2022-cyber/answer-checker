@@ -1,7 +1,7 @@
 import type { LucideIcon } from 'lucide-react-native';
 import BookOpen from 'lucide-react-native/icons/book-open';
 import ClipboardCheck from 'lucide-react-native/icons/clipboard-check';
-import FileText from 'lucide-react-native/icons/file-text';
+import FileCheck from 'lucide-react-native/icons/file-check';
 import GraduationCap from 'lucide-react-native/icons/graduation-cap';
 import House from 'lucide-react-native/icons/house';
 import ScanLine from 'lucide-react-native/icons/scan-line';
@@ -26,7 +26,7 @@ export const HOME_ROUTE = 'index';
 /** Bottom tab bar, left to right. Scan sits in the middle as the main action. */
 export const TAB_DESTINATIONS: readonly Destination[] = [
   { route: HOME_ROUTE, title: 'Home', tabLabel: 'Home', icon: House },
-  { route: 'exams', title: 'Exams & answer keys', tabLabel: 'Exams', icon: FileText },
+  { route: 'keys', title: 'Answer Keys', tabLabel: 'Keys', icon: FileCheck },
   { route: SCAN_ROUTE, title: 'Scan answer sheet', tabLabel: 'Scan', icon: ScanLine },
   { route: 'students', title: 'Students', tabLabel: 'Students', icon: GraduationCap },
   { route: 'results', title: 'Results', tabLabel: 'Results', icon: ClipboardCheck },

@@ -54,20 +54,11 @@ function insertStudent(id, classId, studentNumber, fullName) {
   t.run('INSERT INTO students VALUES (?, ?, ?, ?, ?, ?)', id, classId, studentNumber, fullName, T0, T0);
 }
 
-/** A subject, an exam, and one saved result for the student. */
+/** A subject, an answer key, and one saved result for the student. */
 function insertResultFor(studentId, classId, resultId = `res-${studentId}`) {
   t.run('INSERT OR IGNORE INTO subjects VALUES (?, ?, ?, ?)', 'sub-1', 'Mathematics', T0, T0);
-  t.run(
-    'INSERT OR IGNORE INTO exams VALUES (?, ?, ?, ?, ?, ?, ?)',
-    `exm-${resultId}`,
-    'sub-1',
-    classId,
-    'Quiz',
-    5,
-    T0,
-    T0
-  );
-  t.run('INSERT INTO exam_results VALUES (?, ?, ?, ?, ?, ?)', resultId, `exm-${resultId}`, studentId, 3, 5, T0);
+  t.run('INSERT INTO answer_keys VALUES (?, ?, ?, ?, ?, ?)', `key-${resultId}`, 'sub-1', `Quiz ${resultId}`, 5, T0, T0);
+  t.run('INSERT INTO results VALUES (?, ?, ?, ?, ?, ?)', resultId, `key-${resultId}`, studentId, 3, 5, T0);
 }
 
 /** A picker that never opens; for use cases that do not touch files. */
@@ -112,8 +103,8 @@ async function openMigrated() {
 describe('migration 3: Student ID unique across classes', () => {
   it('brings a fresh database to the latest version with the unique index', async () => {
     t = openTestDatabase();
-    assert.equal(await initializeDatabase(t.db), MIGRATIONS.length);
-    assert.equal(MIGRATIONS.length, 3);
+    assert.equal(await initializeDatabase(t.db, MIGRATIONS.slice(0, 3)), 3);
+    assert.ok(MIGRATIONS.length >= 3);
     assert.equal(userVersion(), 3);
     const index = t.get("SELECT sql FROM sqlite_master WHERE name = 'idx_students_student_number'");
     assert.match(index.sql, /UNIQUE INDEX .* \(student_number COLLATE NOCASE\)/);
@@ -133,7 +124,7 @@ describe('migration 3: Student ID unique across classes', () => {
       tables.map((table) => [table, t.all(`SELECT * FROM ${table} ORDER BY 1, 2`)])
     );
 
-    assert.equal(await initializeDatabase(t.db), 3);
+    assert.equal(await initializeDatabase(t.db, MIGRATIONS.slice(0, 3)), 3);
 
     assert.equal(userVersion(), 3);
     for (const table of tables) {
@@ -505,13 +496,13 @@ describe('students: permanent deletion', () => {
 
     // Nothing was deleted: not the student, and not any result.
     assert.equal(studentCount(), 2);
-    assert.equal(t.get('SELECT COUNT(*) AS n FROM exam_results').n, 3);
+    assert.equal(t.get('SELECT COUNT(*) AS n FROM results').n, 3);
   });
 
   it('deletes the student once the results are gone', async () => {
     insertResultFor('s1', 'cls-a', 'res-1');
     await assert.rejects(build().deleteStudent('s1'), StudentInUseError);
-    t.run('DELETE FROM exam_results WHERE id = ?', 'res-1');
+    t.run('DELETE FROM results WHERE id = ?', 'res-1');
     await build().deleteStudent('s1');
     assert.equal(studentCount(), 1);
   });

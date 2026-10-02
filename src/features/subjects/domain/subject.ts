@@ -1,6 +1,6 @@
 /**
  * A subject: what the Teacher teaches, for example "Mathematics" or
- * "Data Structures". An exam belongs to one subject and one class.
+ * "Data Structures". An answer key belongs to one subject.
  */
 export type Subject = {
   id: string;
