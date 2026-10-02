@@ -12,31 +12,41 @@ Implemented. This is what the code contains today.
 flowchart TD
     subgraph Device["Teacher's device - no network used"]
         ROOT["src/app/_layout.tsx: composition root"]
-        UI["Presentation: Home, Answer Keys, Students, Subjects, Classes, Settings, placeholders"]
-        UC["Application: subject, class, class-subject, student, and answer key use cases"]
-        DOMAIN["Domain: Subject, SchoolClass, Student, AnswerKey, roster and CSV rules"]
+        UI["Presentation: Home, Answer Keys, Scan, Students, Subjects, Classes, Settings, Results placeholder"]
+        CAM["Presentation: camera capture, expo-camera"]
+        UC["Application: subject, class, class-subject, student, answer key, and scan use cases"]
+        DOMAIN["Domain: Subject, SchoolClass, Student, AnswerKey, roster and CSV rules, sheet template and PDF, detection, scoring"]
         REPO["Infrastructure: SQLite repositories"]
         FILES["Infrastructure: roster file picker"]
+        OMR["Infrastructure: sheet reader in TypeScript, PNG codec"]
+        IMAGES["Infrastructure: scan image store, printable sheet sharing"]
         CORE["Infrastructure: database provider, migrations, runInTransaction"]
-        DB[("answer-checker.db - schema version 4")]
+        DB[("answer-checker.db - schema version 6")]
         CSV["CSV file chosen by the Teacher"]
+        STORE["App-private files: cache and documents/scans"]
     end
 
     ROOT --> UI
     ROOT --> REPO
     ROOT --> FILES
+    ROOT --> OMR
+    ROOT --> IMAGES
+    UI --> CAM
     UI --> UC
     UC --> DOMAIN
     REPO --> UC
     FILES --> UC
+    OMR --> UC
+    IMAGES --> UC
     REPO --> CORE
     CORE --> DB
     FILES --> CSV
+    IMAGES --> STORE
 ```
 
 ## Target Architecture
 
-Planned. Camera, OMR, and scan-image storage are not built.
+The remaining target is Results: viewing saved results and deleting them with their image. Everything else in the target is implemented above.
 
 ```mermaid
 flowchart TD
@@ -45,22 +55,23 @@ flowchart TD
         APP["Application use cases"]
         DOMAIN["Domain rules"]
         subgraph Infra["Local infrastructure"]
-            CAM["Camera - planned"]
-            OMR["On-device OMR, OpenCV - planned"]
+            OMR["Sheet reader, TypeScript"]
             REPO["SQLite repositories"]
-            FILES["Local file storage: scan images - planned"]
+            FILES["Local file storage: scan images"]
+            RES["Result viewing and deletion - planned"]
         end
         DB[("Local SQLite database")]
     end
 
     UI --> APP
     APP --> DOMAIN
-    APP --> CAM
     APP --> OMR
     APP --> REPO
     APP --> FILES
-    CAM --> OMR
+    APP --> RES
     REPO --> DB
+    RES --> DB
+    RES --> FILES
 ```
 
 ## Clean Architecture Layers
@@ -71,7 +82,7 @@ Implemented. Arrows show allowed import direction. Rules are in [source-of-truth
 flowchart TD
     ROUTES["src/app: routes and composition root"]
     PRES["Presentation: screens, components, hooks"]
-    INFRA["Infrastructure, all local: SQLite, roster files, later camera and OpenCV"]
+    INFRA["Infrastructure, all local: SQLite, roster files, sheet reader, scan images"]
     APP["Application: use cases and ports"]
     DOMAIN["Domain: entities and pure rules"]
 
@@ -93,7 +104,7 @@ flowchart TD
     subgraph Bar["Bottom navigation - five items"]
         HOME["1 Home"]
         KEYS["2 Keys - Answer Keys"]
-        SCAN["3 Scan - placeholder"]
+        SCAN["3 Scan"]
         STUDENTS["4 Students"]
         RESULTS["5 Results - placeholder"]
     end
@@ -112,13 +123,20 @@ flowchart TD
     KEYS -- "Open Subjects, only while no subject exists" --> SUBJECTS
     STUDENTS --> STUDENTFORM["Student form: add, edit, move"]
     STUDENTS --> IMPORT["Roster import preview"]
+    SCAN --> PICK["Picker sheets: subject, answer key, class, student"]
+    SCAN --> SHARE["System share sheet: printable answer sheet PDF"]
+    SCAN --> CAMERA["Camera"]
+    CAMERA --> REVIEW["Review of the reading"]
+    REVIEW --> SAVED["Result saved: scan next student"]
+    PICK -- "Create answer key, only while the subject has none" --> KEYS
+    PICK -- "Add students, only while the class has none" --> STUDENTS
 ```
 
-Planned nested screens that do not exist: scan selection, Camera, Review Detection, Result Detail.
+The pickers, the camera, and the review are sheets and full-screen dialogs over the Scan screen, not routes. Planned and not built: Result list and Result Detail.
 
 ## Implemented SQLite Schema
 
-Implemented. This is the physical schema after migrations 1 to 4 (`PRAGMA user_version` = 4). All tables are `STRICT`. All `id` columns are device-generated UUIDs. There is no exam table: migration 4 converted `exams`, `exam_questions`, and the old per-question `answer_keys` into the tables below.
+Implemented. This is the physical schema after migrations 1 to 6 (`PRAGMA user_version` = 6). All tables are `STRICT`. All `id` columns are device-generated UUIDs. There is no exam table: migration 4 converted `exams`, `exam_questions`, and the old per-question `answer_keys` into the tables below.
 
 ```mermaid
 erDiagram
@@ -129,7 +147,8 @@ erDiagram
     ANSWER_KEYS ||--|{ ANSWER_KEY_ITEMS : "one per question"
     ANSWER_KEYS ||--o{ RESULTS : "scored with"
     STUDENTS ||--o{ RESULTS : receives
-    RESULTS ||--o{ STUDENT_ANSWERS : contains
+    CLASSES ||--o{ RESULTS : "scanned under"
+    RESULTS ||--|{ STUDENT_ANSWERS : contains
     RESULTS ||--o| SCAN_RECORDS : "scanned from"
 
     SUBJECTS {
@@ -174,18 +193,24 @@ erDiagram
         text id PK
         text answer_key_id FK
         text student_id FK
+        text class_id FK
         integer score
         integer total
+        text template_id
+        text captured_at
         text created_at
     }
     STUDENT_ANSWERS {
         text id PK
         text result_id FK
         integer question_number
-        text state
-        text selected_answer
+        text detected_state
+        text detected_answer
+        text final_answer
+        text correct_answer
         integer is_correct
-        integer teacher_corrected
+        integer manually_corrected
+        real confidence
     }
     SCAN_RECORDS {
         text id PK
@@ -198,11 +223,14 @@ erDiagram
 Notes:
 
 - Delete rules: `class_subjects`, `answer_key_items`, `student_answers`, and `scan_records` are removed with their parent (CASCADE). Every other foreign key is RESTRICT. The full table is in [api.md](./api.md#foreign-keys-and-delete-rules).
-- An Answer Key has a Subject and no Class. The Class reaches a Result through the Student.
-- `students.student_number` is the Student ID and is unique in the whole app, ignoring letter case. An Answer Key name is unique within its Subject. One result per student per answer key is enforced by a unique index.
-- `question_count` and `question_number` are 1 to 40; `correct_answer` is A, B, C, or D.
-- `scan_records.image_path` points to a file in local storage, or is null when no image was kept.
-- `results`, `student_answers`, and `scan_records` hold no rows yet: nothing saves a result until scanning exists.
+- An Answer Key has a Subject and no Class. A Result records the Class the Student was in when the sheet was scanned (`results.class_id`, RESTRICT), so it stays under that Class if the Student moves later.
+- `students.student_number` is the Student ID and is unique in the whole app, ignoring letter case. An Answer Key name is unique within its Subject.
+- A Student may have several Results with one Answer Key: each scan is a separate attempt. The index on `(answer_key_id, student_id)` is not unique.
+- `question_count` and `question_number` are 1 or more, with no upper limit in the database; `correct_answer` is A, B, C, or D.
+- `student_answers.detected_state` is `MARKED`, `BLANK`, `MULTIPLE`, or `UNCLEAR`. `detected_answer` is what the reader read, `final_answer` what was scored after the Teacher's review (null is a blank), and `correct_answer` the key's letter at the time of scoring. `is_correct` must agree with the last two.
+- `results.template_id` names the sheet that was read, for example `AC-10-V2`. `captured_at` is when the photo was taken, `created_at` when the Result was saved.
+- `scan_records.image_path` is the path of the Result's one image, relative to the app's documents folder, for example `scans/<result id>.png`.
+- `results`, `student_answers`, and `scan_records` are written by Scan. Nothing displays or deletes them yet.
 - There is no teacher, account, role, or synchronization table, and no soft-delete or archive column.
 
 ## Roster Import
@@ -239,11 +267,11 @@ sequenceDiagram
 
 ## Answer Key Editing Rule
 
-Implemented. The locked path is covered by tests; it cannot be reached on a phone until Results exist.
+Implemented. The locked path is covered by tests and is reachable on the phone now that Scan saves Results.
 
 ```mermaid
 flowchart TD
-    E["Save changes to an answer key"] --> V{"Name, subject, 1 to 40 questions, every answer A to D?"}
+    E["Save changes to an answer key"] --> V{"Name, subject, 1 to 200 questions, every answer A to D?"}
     V -- No --> X["VALIDATION_ERROR, nothing saved"]
     V -- Yes --> R{"Saved results scored with this key?"}
     R -- No --> W["Replace header and all items in one transaction"]
@@ -253,75 +281,117 @@ flowchart TD
     L --> D["Duplicate the key and revise the copy"]
 ```
 
-## Planned Scanning Sequence
+## Scanning Sequence
 
-Planned. The four selection reads exist; nothing from "Scan sheet" onward is built.
+Implemented and verified on a physical Android phone.
 
 ```mermaid
 sequenceDiagram
     actor Teacher
-    participant App as Mobile App
+    participant UI as Scan screen
+    participant UC as Scan use cases
     participant DB as Local SQLite database
-    participant OMR as On-device OMR
-    participant Files as Local file storage
+    participant OMR as Sheet reader
+    participant Files as Scan image store
 
-    Teacher->>App: Select Subject
-    App->>DB: Answer Keys of the Subject
-    App->>DB: Classes assigned to the Subject (class_subjects)
-    Teacher->>App: Select Answer Key and Class
-    App->>DB: Students whose class_id is the Class
-    Teacher->>App: Select Student
-    Teacher->>App: Scan sheet
-    App->>Files: Store captured image
-    App->>OMR: Captured image
-    OMR-->>App: A to D answers with states
-    Teacher->>App: Review blank, multiple, uncertain
-    App->>App: Validate Subject, Key, Class, Student again
-    App->>App: Score against the Answer Key
-    App->>DB: Save result and answers in one transaction
-    App-->>Teacher: Show result
-    Note over App,Files: Every step runs on the device. Nothing is sent anywhere.
+    Teacher->>UI: Select Subject
+    UI->>UC: listOptions(selection)
+    UC->>DB: Answer Keys of the Subject, Classes assigned to it
+    Teacher->>UI: Select Answer Key and Class
+    UC->>DB: Students of the Class, with how often each was scanned with the key
+    Teacher->>UI: Select Student
+    Teacher->>UI: Open camera, take the photo
+    UI->>UC: readCapture(photo, selection)
+    UC->>DB: Validate Subject, Key, Class, Student
+    UC->>Files: Load the photo as grayscale at working size
+    UC->>OMR: Photo and the template for the key's question count
+    alt Photo cannot be trusted
+        OMR-->>UC: Refused with a reason
+        UC->>Files: Delete the photo
+        UI-->>Teacher: What to change, Retake
+    else Read
+        OMR-->>UC: One decision per question, flattened sheet
+        UC->>Files: Write the flattened sheet as a preview, delete the photo
+        UI-->>Teacher: Review: sheet picture, answers, score so far
+    end
+    Teacher->>UI: Decide blank, multiple, unclear; correct if needed; Save
+    UI->>UC: saveResult(draft, review)
+    UC->>DB: Validate the selection again; key unchanged?
+    UC->>DB: Earlier Results of this Student with this key?
+    opt Earlier Result exists and not yet confirmed
+        UI-->>Teacher: Confirm a second, separate attempt
+    end
+    UC->>Files: Move the preview to documents/scans/<result id>.png
+    UC->>DB: One transaction: result, answers, scan record
+    opt Transaction fails
+        UC->>Files: Delete the moved image
+    end
+    UI-->>Teacher: Score, Scan next student
+    Note over UI,Files: Every step runs on the device. Nothing is sent anywhere.
 ```
 
 Selection rules:
 
 ```mermaid
 flowchart TD
-    S["Subject changed"] --> S1["Clear Answer Key, Class, and Student that no longer match"]
-    C["Class changed"] --> C1["Clear Student that no longer matches"]
-    SAVE["Save"] --> V{"Key belongs to Subject, Class assigned to Subject, Student in Class?"}
-    V -- Yes --> OK["Write result"]
+    S["Subject changed"] --> S1["Clear Answer Key; clear Class and Student unless the Class also takes the new Subject"]
+    C["Class changed"] --> C1["Clear Student"]
+    SAVE["Save"] --> V{"Key belongs to Subject, Class assigned to Subject, Student in Class, key fits one sheet?"}
     V -- No --> ERR["VALIDATION_ERROR, nothing saved"]
+    V -- Yes --> K{"Answer key unchanged since the sheet was read?"}
+    K -- No --> STALE["ANSWER_KEY_CHANGED, nothing saved, scan again"]
+    K -- Yes --> R{"Every question decided?"}
+    R -- No --> REV["VALIDATION_ERROR, back to review"]
+    R -- Yes --> OK["Write result"]
 ```
 
-## Planned OMR Flow
+## Answer Sheet Generation
 
-Planned.
+Implemented. One template serves the printed sheet and the reader.
 
 ```mermaid
 flowchart TD
-    B["Camera"] --> C{"Sheet and markers detected?"}
-    C -- No --> B
-    C -- Yes --> D["Perspective Correction"]
-    D --> E["Grayscale and Thresholding"]
-    E --> F["Detect A to D Bubbles"]
-    F --> G["Interpret Answers per Question"]
-    G --> H{"Question state"}
-    H -- SELECTED --> I["Accept detected answer"]
-    H -- BLANK --> J["Flag: no answer"]
-    H -- MULTIPLE --> K["Flag: more than one bubble"]
-    H -- UNCERTAIN --> L["Flag: low confidence"]
-    I --> M["Validation"]
-    J --> M
-    K --> M
-    L --> M
-    M --> N["Teacher Review"]
-    N --> O{"Flags resolved and confirmed?"}
-    O -- "Edit answers" --> N
-    O -- Rescan --> B
-    O -- Confirm --> P["Score against the Answer Key"]
-    P --> Q["Save to SQLite"]
-    Q --> R["View Result"]
+    KEY["Selected Answer Key: N questions"] --> FIT{"N from 1 to 100?"}
+    FIT -- No --> NONE["No sheet; the key cannot be scanned"]
+    FIT -- Yes --> T["sheetTemplate(N): markers, orientation square, identity row spelling N, N rows of A to D"]
+    T --> PDF["buildAnswerSheetPdf: one A4 page, questions 1 to N only"]
+    PDF --> SHAREIT["System share sheet: view, print, send"]
+    T --> READER["Reader: expects a sheet for N questions"]
+    SHAREIT -. "printed, filled in, photographed" .-> READER
+```
+
+## OMR Flow
+
+Implemented.
+
+```mermaid
+flowchart TD
+    B["Photo"] --> S{"Enough pixels?"}
+    S -- No --> X["Refused: retake"]
+    S -- Yes --> C{"Four corner markers found, sheet large and square enough?"}
+    C -- No --> X
+    C -- Yes --> O{"Orientation square and a valid identity row in one of four turns?"}
+    O -- No --> X
+    O -- Yes --> W{"Sheet's question count equals the answer key's?"}
+    W -- No --> X2["Refused: sheet for another answer key, both counts named"]
+    W -- Yes --> D["Flatten the sheet to 4 pixels per millimetre"]
+    D --> L{"Light and focus good enough?"}
+    L -- No --> X
+    L -- Yes --> F["Measure the fill of each bubble at its template position"]
+    F --> H{"Question state"}
+    H -- MARKED --> I["Accept the letter"]
+    H -- BLANK --> J["Needs review: no answer"]
+    H -- MULTIPLE --> K["Needs review: more than one bubble"]
+    H -- UNCLEAR --> U["Needs review: no clear mark"]
+    I --> N["Teacher review"]
+    J --> N
+    K --> N
+    U --> N
+    N --> Q{"Every question decided?"}
+    Q -- "Choose a letter or Blank" --> N
+    Q -- Retake --> B
+    Q -- Save --> P["Score against the Answer Key"]
+    P --> R["Save to SQLite with one image"]
 ```
 
 ## Permanent Deletion: Blocked or Deleted
@@ -358,7 +428,7 @@ sequenceDiagram
 | Deleting | Counted before deleting |
 | --- | --- |
 | Subject | Answer Keys of the subject |
-| Class | Students of the class |
+| Class | Students of the class, and Results scanned under it |
 | Student | Results of the student |
 | Answer Key | Results scored with the key |
 

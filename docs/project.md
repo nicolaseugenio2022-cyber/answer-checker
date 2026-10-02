@@ -6,11 +6,11 @@ Last reviewed: 2026-10-02
 
 ## Overview
 
-Answer Checker is a mobile application that checks shaded multiple-choice answer sheets with the phone camera. The examination itself is a physical paper that already exists; the Teacher does not create an exam in the app. The Teacher creates an Answer Key for it, scans each student's standardized answer sheet, reviews the detected answers, and gets a score that is saved on the device. Recognition uses on-device Optical Mark Recognition (OMR).
+Answer Checker is a mobile application that checks shaded multiple-choice answer sheets with the phone camera. The examination itself is a physical paper that already exists; the Teacher does not create an exam in the app. The Teacher creates an Answer Key for it, prints the answer sheet the app makes for that key, scans each student's sheet, reviews the detected answers, and gets a score that is saved on the device. Recognition uses on-device Optical Mark Recognition (OMR).
 
 The app is **offline-only**. Everything runs on the phone and is stored in a local SQLite database on the Teacher's device. There is no backend, no cloud database, no synchronization, and no account.
 
-Today the Teacher can manage Subjects, Classes, and Students, choose which Subjects are taught to each Class, import a class roster from a CSV file, and create Answer Keys. Scanning and Results are not built.
+Today the Teacher can manage Subjects, Classes, and Students, choose which Subjects are taught to each Class, import a class roster from a CSV file, create Answer Keys, print an answer sheet for a key, and scan sheets: photograph, review, score, and save. Viewing and deleting saved Results is not built.
 
 ## Problem Statement
 
@@ -51,35 +51,35 @@ Accepted on a physical Android phone by the project owner, stage by stage, on 20
 - **Subjects** and **Classes**: view, add, rename, and permanently delete
 - **Students**: view grouped by Class, search by name or Student ID, filter by Class, add, edit, move to another Class, and permanently delete
 - **Roster import**: a CSV file with `student_id,full_name` into one Class, or with `student_id,full_name,grade_and_section,course` mapped group by group to existing Classes, with a preview before anything is stored
-- **Answer Keys**: view grouped by Subject, search, filter by Subject, create, view, edit, duplicate, and permanently delete, with 1 to 40 questions and one of A to D per question
+- **Answer Keys**: view grouped by Subject, search, filter by Subject, create, view, edit, duplicate, and permanently delete, with as many questions as the Teacher enters (the app refuses more than 200) and one of A to D per question
+- **Printable answer sheet**: a PDF made on the phone for the exact number of questions of the chosen Answer Key, up to 100, opened through the system share sheet to view, print, or send
+- **Scan**: choose Subject, Answer Key, Class, and Student in searchable bottom sheets; photograph the sheet; the sheet is read on the device; review and correct the reading; score; save the Result with its answers and one image. A second scan of the same Student with the same key is saved as a separate attempt after confirmation
 - Validation, case-insensitive uniqueness, and typed errors for all of the above
 - Confirmation dialog before every deletion
 - Themed in-app notice after each successful action
 - Settings screen with a working light/dark theme switch and a note that data is stored only on the device
-- On-device SQLite database with versioned migrations; migrations 1 to 4 have run on the phone
+- On-device SQLite database with versioned migrations; migrations 1 to 6 have run on the phone
 - Web preview that shows an honest "Only on the phone" state instead of pretending to store data
 
 ### Implemented, not verified on a device
 
-Code exists and passes the automated tests. These paths cannot be reached on a phone until Results exist, or were not reported separately.
+Code exists and passes the automated tests. These paths were not reported separately in an acceptance pass.
 
-- Deletion of a Student or an Answer Key **blocked by saved Results**, with the count
+- Deletion of a Student, an Answer Key, or a Class **blocked by saved Results**, with the count. Reachable on the phone now that scans are saved
 - An Answer Key with Results being **locked**: only its name can change
+- The sheet reader on **dense sheets** (41 to 100 questions) and under difficult light, angles, and pencils. It was accepted on the phone in ordinary use; its thresholds are not calibrated
+- Screen-reader behavior of the Scan pickers: focus moving into the sheet and back to the row
 - The conversion of legacy exam rows by migration 4. No installed database had such rows, so the phone ran the migration with nothing to convert
 - Subject-to-Class assignments (Classes → Manage subjects) and the row summaries: in use on the phone since the Students stage, with no separate acceptance report
 
 ### Planned
 
-- Scan standardized answer sheets with the camera
-- On-device OMR with `SELECTED`, `BLANK`, `MULTIPLE`, and `UNCERTAIN` states
-- Review and correct detected answers
-- Calculate scores against the selected Answer Key
-- Save results locally and view previous results
-- Permanently delete results, including answer rows, scan metadata, and scan images
-- An original printable answer sheet with four alignment markers
+- View previous Results
+- Permanently delete Results, including answer rows, scan metadata, and the scan image
 - Home showing real activity
+- Calibration of the reader's thresholds on real printed sheets
 
-Placeholder screens exist for Scan answer sheet and Results. Each says what it will do and that it is not built; neither has controls or data.
+A placeholder screen exists for Results. It says what it will do and that it is not built; it has no controls or data. Results are already saved by Scan and will appear there.
 
 ### Optional/Future
 
@@ -106,7 +106,7 @@ Rules are in [source-of-truth.md](./source-of-truth.md#subject-and-class-truth);
 ## Students and Answer Keys
 
 - A **Student** has a Student ID, a full name, and one Class. The Student ID is unique in the whole app.
-- An **Answer Key** has a name, one Subject, 1 to 40 questions, and one correct letter per question. It belongs to no Class and is used with every Class that takes its Subject.
+- An **Answer Key** has a name, one Subject, as many questions as the Teacher enters, and one correct letter per question. It belongs to no Class and is used with every Class that takes its Subject.
 - The Teacher never creates an exam in the app.
 
 Rules are in [source-of-truth.md](./source-of-truth.md#student-truth) and [source-of-truth.md](./source-of-truth.md#answer-key-truth); the operations are in [api.md](./api.md#student-contract) and [api.md](./api.md#answer-key-contract).
@@ -122,13 +122,15 @@ Rules are in [source-of-truth.md](./source-of-truth.md#student-truth) and [sourc
 | UI components | React Native Reusables (`Button`, `Text`, `Icon`, `Badge`, `Input`), native `Item` list rows modeled on shadcn Item, dialogs and full-screen forms on React Native `Modal`, `@rn-primitives/portal`, `@rn-primitives/slot` | Implemented |
 | Styling | NativeWind 4.2, Tailwind CSS 3.4, `tailwindcss-animate`, `class-variance-authority`, `clsx`, `tailwind-merge` | Implemented |
 | Animation | `react-native-reanimated` 4 | Implemented |
-| Local SQLite database | `expo-sqlite` 57. Required; the only application database | Implemented (schema version 4) |
+| Local SQLite database | `expo-sqlite` 57. Required; the only application database | Implemented (schema version 6) |
 | Record IDs | `expo-crypto` 57 (`randomUUID`) | Implemented |
 | Roster files | `expo-document-picker` 57 to choose a CSV file; `expo-file-system` 57 to read and delete its temporary copy; the CSV reader is project code, with no parser dependency | Implemented |
 | Linting | ESLint 9 with `eslint-config-expo` | Implemented |
-| Automated tests | Node's built-in test runner with `node:sqlite`; no test framework installed | Implemented (270 database, use-case, CSV, and file-lifecycle tests) |
-| Camera | Expo Camera or compatible React Native camera library | Planned, not installed |
-| OMR | OpenCV, on-device | Planned, not installed |
+| Automated tests | Node's built-in test runner with `node:sqlite`; no test framework installed | Implemented (392 tests: database, use cases, CSV, file lifecycles, sheet template and PDF, sheet reader, scan) |
+| Camera | `expo-camera` 57 | Implemented |
+| OMR | The project's own TypeScript image processing, on-device. No OpenCV | Implemented |
+| Scan images | `expo-image-manipulator` 57 to resize the photo; `fflate` 0.8 for the project's own PNG reader and writer; `expo-file-system` 57 | Implemented |
+| Printable answer sheet | PDF written by project code, with no PDF library; shared with `expo-sharing` 57 | Implemented |
 | Query/ORM layer | Drizzle ORM | Optional, not decided, not installed |
 | Backend, cloud database, synchronization, authentication | None | Excluded. Not installed |
 
@@ -189,7 +191,7 @@ React Native + Expo + TypeScript
       Domain rules
             |
   Local infrastructure
-(SQLite, local files, camera, on-device OMR)
+(SQLite, local files, on-device sheet reader)
             |
 SQLite on the Teacher's device
 ```
@@ -209,7 +211,7 @@ src/
     domain/                             Name rules shared by named records; CSV reader
     application/                        Typed errors, Clock and IdGenerator ports, name validation
     infrastructure/database/            SQLite provider, migrations, transactions, SQL connection type
-    presentation/components/            Screen body, list screen, dialogs, choice list, chips, search, notice
+    presentation/components/            Screen body, list screen, dialogs, picker sheet, choice list, chips, search, notice
     presentation/components/ui/         React Native Reusables components
     presentation/navigation/            Bottom-tab shell and the destination list
     presentation/hooks/, lib/           Press feedback, keyboard height, theme tokens, helpers
@@ -219,15 +221,18 @@ src/
     class-subjects/                     application, infrastructure, presentation
     students/                           domain, application, infrastructure, presentation
     answer-keys/                        domain, application, infrastructure, presentation
+    scan/                               domain, application, infrastructure, presentation
     dashboard/, settings/               presentation
-    scan/, results/                     presentation (placeholders)
+    results/                            presentation (placeholder)
   global.css                            Tailwind layers and theme tokens
+scripts/generate-answer-sheet.mjs       Writes an answer sheet PDF on the computer, for inspection
 tests/database/                         Node tests for schema, migrations, repositories, use cases, CSV, files
+tests/scan/                             Node tests for the sheet template and PDF, the reader, and the scan use cases
 ```
 
 ## Main User Flow
 
-Planned from "Scan answer sheet" onward. The records the Teacher selects from (Subjects, Answer Keys, Classes, Students) are implemented; no scan screen selects them yet.
+Implemented up to "Save to SQLite". "View result" is Planned: after a save the app shows the score and offers the next Student.
 
 ```text
 Teacher opens app
@@ -236,10 +241,10 @@ Teacher opens app
   -> Select Answer Key of that Subject
   -> Select Class assigned to that Subject
   -> Select Student of that Class
-  -> Scan answer sheet
-  -> On-device OMR
+  -> Photograph the answer sheet printed for that Answer Key
+  -> On-device reading
   -> Review detected answers
-  -> Resolve BLANK / MULTIPLE / UNCERTAIN if needed
+  -> Resolve BLANK / MULTIPLE / UNCLEAR if needed
   -> Confirm
   -> Calculate score
   -> Save to SQLite
@@ -260,25 +265,35 @@ What this means for the Teacher:
 - Losing or replacing the phone may mean losing the data.
 - Automatic cloud backup and cross-device access are not included.
 
+## Answer Sheet
+
+Implemented. The app makes its own answer sheet; there is no fixed sheet and no sheet file in the app.
+
+- The sheet is generated for the exact question count of the chosen Answer Key. A 10-question key gives a sheet with questions 1 to 10 only.
+- A4, black only: four corner markers, an orientation square, a row of cells that spells the question count, fields for name, Student ID, Subject, and Class (for people; the app does not read them), and bubbles A to D for each question.
+- Density follows the length: up to 40 questions in two columns of 20, up to 75 in three columns of 25, up to 100 in four columns of 25 with smaller bubbles.
+- One sheet holds at most 100 questions. A longer Answer Key cannot be scanned.
+- The Scan screen says "This answer sheet contains N questions with choices A–D" and offers "View or share printable sheet".
+- A sheet printed for another question count is refused by the reader, which names both counts.
+
+Arbitrary third-party sheets are not supported, and the branded ZipGrade sheet used as a visual reference must not be copied or shipped.
+
 ## OMR Overview
 
-Planned. Nothing in this section is built.
-
-The app scans its own standardized answer sheet. Arbitrary third-party sheets are not supported, and the branded ZipGrade sheet used as a visual reference must not be copied or shipped.
+Implemented. The reader is the project's own TypeScript; OpenCV is not used.
 
 Pipeline:
 
 ```text
-Camera capture
-  -> Detect answer sheet
-  -> Detect alignment markers
-  -> Perspective correction
-  -> Grayscale
-  -> Thresholding
-  -> Locate bubble regions
-  -> Measure fill percentage
-  -> Determine selected answers
-  -> Validate detection
+Photo (resized to a working size, as grayscale)
+  -> Find dark squares
+  -> Pick the four corner markers
+  -> Find which way up the sheet is; read its question count
+  -> Refuse a sheet for another question count
+  -> Flatten the sheet onto its own coordinates
+  -> Check light and focus
+  -> Measure the fill of every bubble at its known place
+  -> Decide each question
   -> Review
   -> Score
 ```
@@ -294,22 +309,25 @@ D = 9% filled
 Detected answer: B
 ```
 
-Each question resolves to `SELECTED`, `BLANK`, `MULTIPLE`, or `UNCERTAIN`. The numbers above are illustrative only. No production thresholds exist; they must be calibrated against real sheets, different pencils and pens, lighting, cameras, and erasures.
+Each question is read as `MARKED`, `BLANK`, `MULTIPLE`, or `UNCLEAR`. The numbers above are illustrative. The thresholds in the code are initial values set on generated test images; they are not calibrated against real sheets, different pencils and pens, lighting, cameras, and erasures.
 
-The initial version reads only the A–D bubbles and the alignment markers. It does not read a handwritten name or subject: the Teacher selects the Answer Key and the Student. A QR code or bubbled Student ID is Optional/Future and would always be confirmed by the Teacher before saving.
+A photo that cannot be trusted is refused with a reason the Teacher can act on (move closer, hold the phone flat, more light, hold steady, show all four corners, use the sheet for this answer key). A refused photo gives no answers and no score.
+
+The reader reads only the A–D bubbles and the sheet's own markers. It does not read a handwritten name or subject: the Teacher selects the Answer Key and the Student. A QR code or bubbled Student ID is Optional/Future and would always be confirmed by the Teacher before saving.
 
 ## Data Storage
 
 - The only database is the local SQLite database (`expo-sqlite`), stored on the Teacher's device in the app's private storage.
 - The file is `answer-checker.db`. It is opened at app start with WAL journaling and foreign keys enabled and verified, then migrated.
-- The schema version is kept in `PRAGMA user_version`. The latest version is **4**.
+- The schema version is kept in `PRAGMA user_version`. The latest version is **6**.
 - Tables (all `STRICT`): `subjects`, `classes`, `class_subjects`, `students`, `answer_keys`, `answer_key_items`, `results`, `student_answers`, `scan_records`.
-- The app reads and writes `subjects`, `classes`, `class_subjects`, `students`, `answer_keys`, and `answer_key_items`. It only counts rows in `results`, to block deletions and lock used Answer Keys. `student_answers` and `scan_records` are unused until scanning exists.
+- The app reads and writes `subjects`, `classes`, `class_subjects`, `students`, `answer_keys`, and `answer_key_items`. Scan writes `results`, `student_answers`, and `scan_records`; nothing shows or deletes those rows yet. They are counted to block deletions, lock used Answer Keys, and label Students already scanned.
 - There is no exam, teacher, account, role, or synchronization table.
 - IDs are UUIDs generated on the device. Timestamps are UTC ISO-8601 strings.
 - Each installation has its own independent database.
 - An imported roster file is never stored: not its contents, its name, or its path. Only the Students are.
-- Scan images, when that feature exists, are local files in the app's storage.
+- A saved Result has one image, the flattened sheet, stored as a PNG file in the app's private documents folder and named by the Result's ID. The database stores only its path. The camera's photo is deleted as soon as the sheet is read or refused. Nothing is written to the device gallery.
+- A generated answer sheet PDF is a temporary file in the app's cache; only the newest one is kept.
 - The database is not encrypted by the app.
 - The web preview opens no database.
 
@@ -337,7 +355,7 @@ When other records depend on the one being deleted, the deletion is blocked and 
 | Record | Blocked while |
 | --- | --- |
 | Subject | Answer Keys belong to it |
-| Class | Students belong to it |
+| Class | Students belong to it, or Results were scanned under it |
 | Student | Saved Results belong to it |
 | Answer Key | Saved Results were scored with it |
 
@@ -353,7 +371,7 @@ They may be reconsidered only after an explicit requirement change, recorded as 
 
 - Student information is stored on the Teacher's device and nowhere else.
 - Scanned answer sheets may contain identifiable information.
-- Scan images should not be retained longer than necessary. Whether images are kept at all after scoring is an open decision.
+- One image of the flattened sheet is kept with each saved Result, until that Result is deleted. The original photo is not kept.
 - Permanent deletion removes associated stored images.
 - The local SQLite database is not encrypted by the app. It is protected by the operating system's app sandbox and the device lock.
 - There is no authentication: anyone who can open the phone and the app can see the data.
@@ -362,9 +380,10 @@ They may be reconsidered only after an explicit requirement change, recorded as 
 ## Constraints
 
 - Must run acceptably on low and mid-range Android devices: camera responsiveness, image preprocessing time, and memory use matter.
-- OpenCV on-device requires native code that Expo Go does not contain, so the scanning stage will need an Expo development build. The features built so far use only Expo SDK modules.
-- Large sheets (many questions) and batch scanning increase processing time and memory pressure.
-- Temporary images must be cleaned up; full-resolution images should not be stored after processing unless required.
+- Everything built so far uses only Expo SDK modules and JavaScript, so it runs in Expo Go without a development build. Native OpenCV would end that and is not used.
+- Reading a sheet takes a moment of JavaScript work on the phone; the photo is reduced to a working size first.
+- One answer sheet holds at most 100 questions.
+- Temporary images are cleaned up: after each reading, and again at the start of a scan session for anything an interrupted session left behind.
 - SQLite queries must stay fast as results accumulate (indexes on foreign keys and common filters).
 - Detection accuracy depends on print quality, lighting, and how bubbles are shaded.
 
@@ -393,36 +412,40 @@ Inspected 2026-10-02.
 | Navigation | Implemented and verified. Bottom tabs: `/`, `/keys`, `/scan`, `/students`, `/results`. Secondary screens opened from Home → More, with Back and Home still selected: `/classes`, `/subjects`, `/settings`. No drawer or sidebar, and no `/exams` route |
 | Design system | Implemented and verified. Light and dark tokens, selective glass surfaces. Live blur is off on Android |
 | Home dashboard | Implemented and verified. Shortcuts, static empty states, and the More list; it reads no data yet |
-| SQLite database | Implemented. `answer-checker.db`, WAL, foreign keys on, `STRICT` tables, `PRAGMA user_version` = 4 |
+| SQLite database | Implemented. `answer-checker.db`, WAL, foreign keys on, `STRICT` tables, `PRAGMA user_version` = 6 |
 | Migration 1 (base schema) | Verified on an Android 14 emulator and on a physical phone |
 | Migration 2 (`class_subjects`) | Has run on a physical phone |
 | Migration 3 (Student ID unique in the app) | Has run on a physical phone |
 | Migration 4 (answer keys replace exams) | Has run on a physical phone, with no legacy rows to convert. The conversion and its rollback are covered by the Node tests |
+| Migration 5 (no upper limit on questions) | Has run on a physical phone |
+| Migration 6 (results as a scan saves them) | Has run on a physical phone |
 | Subjects, Classes | Implemented and verified: list, add, rename, permanent delete |
 | Subject-to-Class assignments | Implemented and in use on the phone; no separate acceptance report |
 | Students | Implemented and verified: list, search, filter, add, edit, move, permanent delete |
 | Roster import | Implemented and verified: both CSV formats, preview, class mapping, atomic save, temporary-file cleanup |
 | Answer Keys | Implemented and verified: list, search, filter, create, view, edit, duplicate, permanent delete |
-| Blocked by Results; locked Answer Key | Implemented and tested in Node. Not reachable on a phone until Results exist |
+| Blocked by Results; locked Answer Key | Implemented and tested in Node. Reachable on the phone since Scan saves Results; no separate acceptance report |
+| Printable answer sheet | Implemented and verified: generated per Answer Key for 1 to 100 questions, shared as a PDF |
+| Scan | Implemented and verified: selection in searchable bottom sheets, camera, on-device reading, review, scoring, saving, second attempts, scan-file cleanup |
 | In-app notice | Implemented and verified |
-| Camera, OMR, review, scoring | Planned. Expo Camera and OpenCV not installed |
-| Results | Planned. Placeholder screen; the `results` table is only counted |
+| OMR thresholds | Initial values. Not calibrated on a range of printed sheets, pencils, light, and phones |
+| Results | Planned. Placeholder screen. Results are saved by Scan but cannot be viewed or deleted |
 | Permanent deletion | Implemented for Subjects, Classes, assignments, Students, and Answer Keys. Planned for Results |
-| Repositories and use cases | Subjects, Classes, Subject-to-Class assignments, Students, Answer Keys |
+| Repositories and use cases | Subjects, Classes, Subject-to-Class assignments, Students, Answer Keys, Scan (results) |
 | Backend | None. No server code, no network requests |
 | Supabase, MongoDB | Not installed. Excluded from the architecture |
 | Authentication, synchronization | None. Excluded from the architecture |
-| Automated tests | 270 tests in `tests/database/`, run by `npm run test:db`, all passing. No UI tests |
+| Automated tests | 392 tests in `tests/database/` and `tests/scan/`, run by `npm run test:db`, all passing. No UI tests |
 | App icons and splash | Still the Expo template artwork |
 | Native identifiers | `android.package` and `ios.bundleIdentifier` not set |
 
-Verification performed on the review date: `npm run test:db` (270 pass), `tsc --noEmit`, ESLint, `expo-doctor` (21 of 21), React Native Reusables `doctor`, and JavaScript bundle exports for web and Android all pass.
+Verification performed on the review date: `npm run test:db` (392 pass), `tsc --noEmit`, ESLint, `expo-doctor` (21 of 21), React Native Reusables `doctor`, and JavaScript bundle exports for web and Android all pass.
 
-The Node tests prove the SQL, the migrations and every upgrade path, the repositories, the use cases, the CSV reader, and the roster-file lifecycle (with a fake file system) against Node's built-in SQLite. They do not prove `expo-sqlite`, the file picker, or the UI on a device; the acceptance passes on the phone do that for the features marked verified.
+The Node tests prove the SQL, the migrations and every upgrade path, the repositories, the use cases, the CSV reader, the roster-file and scan-file lifecycles (with a fake file system), the sheet template and PDF for every question count, and the sheet reader on generated pictures of sheets. They do not prove `expo-sqlite`, the file picker, the camera, the reader on photos of printed sheets, or the UI on a device; the acceptance passes on the phone do that for the features marked verified.
 
 "Verified" in this document rests on the project owner's acceptance on a physical Android phone. TalkBack and raised font sizes have not been systematically checked.
 
-Web is a preview of the phone app only. In a browser the app is held to a 480-point column; there is no desktop or tablet layout. The database provider is a pass-through there, and the Subjects, Classes, Students, and Answer Keys screens show "Only on the phone" with no Add action.
+Web is a preview of the phone app only. In a browser the app is held to a 480-point column; there is no desktop or tablet layout. The database provider is a pass-through there, and the Subjects, Classes, Students, Answer Keys, and Scan screens show "Only on the phone" with no Add or camera action.
 
 ## Known Mismatches
 
@@ -431,6 +454,10 @@ The exam-versus-answer-key mismatches recorded earlier are resolved: migration 4
 | Open point | Detail |
 | --- | --- |
 | Back from Subjects | Opened from the "Open Subjects" button on Answer Keys, Back returns to Answer Keys rather than Home |
+| Results cannot be removed | Scan saves Results, and nothing deletes them yet. A Student, Answer Key, or Class with Results therefore cannot be deleted until Results deletion is built |
+| Long Answer Keys | A key may have up to 200 questions, but one sheet holds 100. A longer key cannot be scanned |
+| Reader calibration | The reader's thresholds are initial values; see OMR Overview |
+| Create answer key from Scan | The action in the empty Answer Key picker opens the Answer Keys screen, not the form itself |
 | Large lists | The Students and Answer Keys lists are plain scrolling lists, not virtualized. Several hundred rows may open slowly |
 | CSV encoding | A roster is read as UTF-8. A file saved in another encoding shows wrong characters for letters such as ñ |
 | File types | The picker offers files reported as CSV or plain text. A provider that reports another type shows the file greyed out |
@@ -443,7 +470,7 @@ The exam-versus-answer-key mismatches recorded earlier are resolved: migration 4
 | 2 | Subjects, Classes, and Subject-to-Class assignments | Implemented and verified |
 | 3 | Students and offline roster import | Implemented and verified |
 | 4 | Answer Keys and the schema and terminology migration | Implemented and verified |
-| 5 | Scan, camera, on-device OMR, and review | Planned |
+| 5 | Scan: generated answer sheet, camera, on-device reading, review, scoring, saving | Implemented and verified |
 | 6 | Results and permanent result and image deletion | Planned |
 | 7 | Home integration with real data | Planned |
 | 8 | Settings, accessibility, and final device testing | Planned |

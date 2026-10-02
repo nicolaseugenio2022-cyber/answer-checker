@@ -4,7 +4,7 @@ Last reviewed: 2026-10-02
 
 This document records the authoritative product and architecture decisions for the Offline Answer Sheet Scanner. Developers and AI coding agents must read it before changing the project.
 
-> **Implementation status at time of writing:** the app shell, the local SQLite database (schema version 4), Subjects, Classes, Subject-to-Class assignments, Students with CSV roster import, and Answer Keys exist. Scanning, OMR, and Results do not. Unless a row or sentence says "Implemented", everything below is a **target decision**, not a description of working software. See [project.md](./project.md#current-implementation-status).
+> **Implementation status at time of writing:** the app shell, the local SQLite database (schema version 6), Subjects, Classes, Subject-to-Class assignments, Students with CSV roster import, Answer Keys, and Scan (printable answer sheet, camera capture, on-device reading, review, scoring, and saving a Result) exist. Viewing and deleting Results do not. Unless a row or sentence says "Implemented", everything below is a **target decision**, not a description of working software. See [project.md](./project.md#current-implementation-status).
 
 ## Status Vocabulary
 
@@ -25,7 +25,7 @@ Every feature in these documents carries one of these labels:
 - The only role is **Teacher**.
 - All data is held in a **local SQLite database stored on the Teacher's device**. It is the only application database.
 - The Teacher does **not create an exam in the app**. The examination is a physical paper that already exists. The Teacher creates only an **Answer Key** for it. See [Answer Key Truth](#answer-key-truth).
-- The application scans **standardized shaded answer sheets** designed for this system.
+- The application scans **standardized shaded answer sheets** designed for this system. The app generates the sheet itself, for the exact number of questions of an Answer Key.
 - Answer recognition uses **deterministic OMR / computer vision**, not AI/LLM inference, and runs on the device.
 - The application must support **permanent physical deletion**.
 
@@ -48,11 +48,13 @@ Do not introduce RBAC. With a single role there is nothing to authorize between.
 | Mobile | React Native, Expo, TypeScript | Implemented |
 | Navigation | Expo Router, routes under `src/app` | Implemented |
 | UI | React Native Reusables, NativeWind, shadcn New York style, pink glass theme | Implemented |
-| Persistence | SQLite via `expo-sqlite`. Required; the only application database | Implemented (schema version 4) |
+| Persistence | SQLite via `expo-sqlite`. Required; the only application database | Implemented (schema version 6) |
 | Record IDs | UUIDs from `expo-crypto` (`randomUUID`) | Implemented |
 | Roster files | `expo-document-picker` to choose a CSV file, `expo-file-system` to read and delete its temporary copy. The CSV reader is the project's own code | Implemented |
-| Camera | Expo Camera, or a compatible React Native camera library, on-device | Planned, not installed |
-| OMR | OpenCV running on-device | Planned, not installed |
+| Camera | `expo-camera`, on-device. Permission is asked only when the Teacher opens the camera | Implemented |
+| OMR | The project's own deterministic image processing in TypeScript (`features/scan/infrastructure/omr`), on-device. OpenCV is not used | Implemented |
+| Scan images | `expo-image-manipulator` resizes the photo; the project's own PNG reader and writer use `fflate`; files are handled with `expo-file-system` | Implemented |
+| Printable answer sheet | A PDF drawn by the project's own code on the phone and handed to the system share sheet with `expo-sharing` | Implemented |
 | Query/ORM layer | Drizzle ORM | Optional, not decided, not installed. Repositories use raw `expo-sqlite` today |
 | Backend, cloud database, synchronization, authentication | None | Excluded from the approved architecture |
 
@@ -129,7 +131,7 @@ Course, Grade, Strand, and Section are **not** separate fields or database entit
 - Names are unique within their kind, ignoring letter case.
 - Renaming keeps `created_at` and updates `updated_at`. Renaming to the same name changes nothing.
 - Lists are alphabetical, ignoring letter case.
-- A Subject cannot be deleted while Answer Keys belong to it. A Class cannot be deleted while it has Students. The Teacher is told how many records block the deletion. Nothing cascades to those records.
+- A Subject cannot be deleted while Answer Keys belong to it. A Class cannot be deleted while it has Students or while Results were scanned under it. The Teacher is told how many records block the deletion. Nothing cascades to those records.
 - An Answer Key does not belong to a Class, so it never blocks deleting one.
 
 ### Subject-to-Class assignments
@@ -145,7 +147,7 @@ Subject ← class_subjects → Class
 - A duplicate assignment is impossible (composite primary key).
 - Saving a selection replaces the whole set for that class in one transaction.
 - Assignment rows are physically deleted. Deleting an otherwise deletable Subject or Class also removes its assignment rows, and only those.
-- The future Scan flow uses this relationship to offer only the Classes of the chosen Subject.
+- The Scan flow uses this relationship to offer only the Classes of the chosen Subject.
 
 ## Student Truth
 
@@ -228,7 +230,7 @@ An Answer Key contains:
 
 - A name, unique within its Subject, ignoring letter case. The same name may be used under another Subject.
 - One Subject.
-- 1 to 40 questions.
+- As many questions as the Teacher enters, 1 or more. The database sets no upper limit (migration 5). The app refuses more than 200 as a guard against a mistyped number; that ceiling is not a schema rule. There is no fixed limit of 40.
 - Exactly one correct answer, A, B, C, or D, for every question.
 
 The app does not store question text, choice text, or any other content of the physical examination.
@@ -250,29 +252,47 @@ A Subject can have several Answer Keys. An Answer Key does not belong to a Class
 
 ### Schema history
 
-Migration 1 modelled exams: `exams` (with a required class), `exam_questions`, and a per-question `answer_keys` table. Migration 4 converted that into `answer_keys` and `answer_key_items`, kept the IDs, renamed `exam_results` to `results`, and removed the class ownership and the old tables. See [api.md](./api.md#migrations).
+Migration 1 modelled exams: `exams` (with a required class), `exam_questions`, and a per-question `answer_keys` table. Migration 4 converted that into `answer_keys` and `answer_key_items`, kept the IDs, renamed `exam_results` to `results`, and removed the class ownership and the old tables. Migration 5 removed the 40-question limit that migrations 1 and 4 had written into the tables. See [api.md](./api.md#migrations).
 
 ## Scanning Truth
 
-Planned. No scanning screen, camera, or OMR code exists. The data it selects from is implemented: Subjects, Answer Keys by Subject, Classes by Subject, and Students by Class.
+Implemented and verified on a physical Android phone (accepted by the project owner on 2026-10-02).
 
-Approved flow:
+Flow:
 
 1. Select a Subject.
-2. Show only the Answer Keys belonging to that Subject.
-3. Show only the Classes assigned to that Subject through `class_subjects`.
-4. Select a Class.
-5. Show only the Students whose `class_id` is that Class.
-6. Select a Student.
-7. Scan the sheet.
-8. Detect the A–D bubbles on the device.
-9. Review blank, multiple, or uncertain answers.
-10. Score against the selected Answer Key.
-11. Save the Result locally.
+2. Select an Answer Key. Only the Answer Keys of that Subject are offered.
+3. Select a Class. Only the Classes assigned to that Subject through `class_subjects` are offered.
+4. Select a Student. Only the Students whose `class_id` is that Class are offered.
+5. Photograph the answer sheet printed for that Answer Key.
+6. The sheet is read on the device.
+7. Review the reading. Every blank, multiple, or unclear question must be decided by the Teacher.
+8. The sheet is scored against the selected Answer Key.
+9. The Result is saved locally with its answers and one image of the flattened sheet.
 
-- Changing the Subject clears a selected Answer Key, Class, and Student that no longer match.
-- Changing the Class clears a selected Student that no longer matches.
-- The application layer validates these relationships again before saving. Filtering in the UI alone is not sufficient.
+Rules:
+
+- Changing the Subject clears a selected Answer Key, and a Class and Student that no longer match. Changing the Class clears the Student.
+- Each choice is made in a bottom sheet with a search field that filters the offered list as the Teacher types.
+- Identity comes only from the Teacher's four choices. Nothing handwritten on the sheet is read.
+- The application layer validates the relationships against the database before reading a photo and again immediately before saving. Filtering in the UI alone is not sufficient.
+- The save also checks that the Answer Key still has the answers the sheet was reviewed against. If it changed, nothing is saved and the sheet is scanned again.
+- A Student who already has a Result with the same Answer Key gets a second, separate Result only after the Teacher confirms. An earlier Result is never replaced or overwritten.
+- After a save, the Subject, Answer Key, and Class stay selected for the next Student. Students already scanned with the chosen Answer Key are labelled.
+- A Result records the Class the Student was in at the time of the scan, the template of the sheet, when the photo was taken, and, for every question, the correct answer at the time of scoring. Later changes to the Student or the Answer Key name do not alter it.
+
+## Answer Sheet Truth
+
+Binding product decision. Implemented and verified on a physical Android phone.
+
+- The app has no fixed answer sheet. A sheet is **generated for the exact question count of the selected Answer Key**: a 10-question key prints questions 1 to 10 and nothing else. No spare rows, no unused columns, and no wording such as "up to 40 questions".
+- One definition of the sheet's geometry is shared by the PDF generator, the reader, and the test images, so the printed sheet and the reader cannot drift apart.
+- The sheet is A4 with four corner markers, one orientation square, and a row of cells that spells the sheet's question count for the reader. Each question has bubbles A to D.
+- The reader is given the question count of the selected Answer Key. A sheet printed for another count is refused with a message naming both counts; it is never read with the wrong layout.
+- One sheet holds at most **100 questions**. An Answer Key with more is listed in Scan but cannot be scanned and has no printable sheet.
+- The Teacher gets the sheet from the Scan screen ("View or share printable sheet"), which hands a PDF made on the phone to the system share sheet for viewing, printing, or sending. No sheet file ships with the app, and nothing is downloaded.
+- The template identifier (`AC-<question count>-V2`) is printed on the sheet and stored with every Result. A change of geometry needs a new layout version; sheets printed with an older version are no longer read. Sheets of the first layout (`AC-40-V1`, a fixed 40-question sheet that was never released) are refused.
+- The layout is original to this project.
 
 ## Architecture Truth
 
@@ -287,7 +307,7 @@ React Native + Expo + TypeScript
 
 - Everything runs inside the mobile application. Nothing in this flow leaves the device.
 - SQLite runs inside the app. Every read and write goes to the local SQLite database.
-- Camera capture and OMR are local infrastructure and run entirely on the device. Scan images are local files.
+- Camera capture and OMR run entirely on the device. Scan images are local files in the app's private storage.
 - The presentation layer is shadcn New York-style mobile UI built with React Native Reusables and NativeWind.
 
 ### Clean architecture layers
@@ -314,7 +334,7 @@ src/
 | --- | --- | --- |
 | Domain | Entities and pure business rules | Nothing outside domain |
 | Application | Use cases and the ports (interfaces) they need | Domain |
-| Infrastructure | Port implementations, all local: SQLite, local files, camera, OpenCV | Application, domain |
+| Infrastructure | Port implementations, all local: SQLite, local files, the sheet reader | Application, domain |
 | Presentation | React Native screens, components, hooks | Application, domain |
 | `src/app` | Route files and provider wiring | Any layer |
 
@@ -333,9 +353,9 @@ Layers that exist today:
 | Location | Layers present |
 | --- | --- |
 | `src/core` | `domain`, `application`, `infrastructure/database`, `presentation` |
-| `features/subjects`, `classes`, `students`, `answer-keys` | `domain`, `application`, `infrastructure`, `presentation` |
+| `features/subjects`, `classes`, `students`, `answer-keys`, `scan` | `domain`, `application`, `infrastructure`, `presentation` |
 | `features/class-subjects` | `application`, `infrastructure`, `presentation` (it has no entity of its own) |
-| `features/dashboard`, `scan`, `results`, `settings` | `presentation` only |
+| `features/dashboard`, `results`, `settings` | `presentation` only |
 
 ## Offline Truth
 
@@ -344,6 +364,7 @@ The application is offline-only. No network is required for any feature, and no 
 - Opening the app
 - Creating and editing subjects, classes, assignments, students, and answer keys
 - Importing a student roster from a local CSV file
+- Making and sharing the printable answer sheet
 - Opening the camera and scanning an answer sheet
 - Running OMR and detecting answers
 - Reviewing and correcting detections
@@ -357,18 +378,23 @@ A feature that would need the internet is out of scope until the requirements ch
 
 ## OMR Truth
 
-Planned. OpenCV and a camera library are not installed.
+Implemented and verified on a physical Android phone.
 
-- OMR is deterministic computer vision: detect sheet, detect alignment markers, correct perspective, grayscale, threshold, locate bubble regions, measure fill, determine answers, validate.
-- The initial OMR recognizes fixed A–D answer bubbles and alignment markers. The schema accepts only the letters A, B, C, and D.
-- Each question resolves to one of four states: `SELECTED`, `BLANK`, `MULTIPLE`, `UNCERTAIN`.
-- Anything other than a confident `SELECTED` or `BLANK` must be surfaced to the Teacher for review before scoring is finalized. The Teacher's correction is authoritative.
-- Only the project's own standardized answer sheet is supported. Arbitrary third-party sheets are out of scope.
-- The app does **not** try to read a handwritten Student name or Subject. That needs OCR or handwriting recognition, which is outside the MVP because a misread could attach a score to the wrong Student.
-- In the initial version the Teacher selects the Answer Key and the Student manually.
-- Optional/Future: an original answer-sheet template may carry a QR code or a bubbled Student ID for automatic identification, and a QR code may identify the Answer Key or template. Any automatically detected identity must be shown to the Teacher for confirmation before saving.
-- The branded ZipGrade sheet used as a visual reference must not be copied or distributed as an application asset. The project needs its own original template.
-- **No production thresholds are defined.** Fill thresholds must be calibrated against real sheets across pencils, pens, lighting conditions, cameras, and erasures before any value is documented as final.
+- **Decision (project owner, 2026-10-02):** the reader is the project's own TypeScript image processing, not native OpenCV. It runs in Expo Go without a development build, and the same code runs in the automated tests. OpenCV is not installed and must not be added without a new decision recorded here.
+- OMR is deterministic: the same picture always gives the same reading. Steps: find the dark squares, pick the four corner markers, find which way up the sheet is, read its question count, flatten the sheet onto its own coordinates, check light and focus, measure the fill of every bubble at its known position, decide each question.
+- Bubbles are never searched for in the photo. They are measured where the template says they are.
+- The reader recognizes only the letters A, B, C, and D.
+- Each question is read as one of four states: `MARKED` (one clear mark), `BLANK`, `MULTIPLE`, `UNCLEAR`. These replace the earlier names `SELECTED` and `UNCERTAIN`.
+- The reader never guesses. A faint mark, or a mark that does not clearly lead the others, is `UNCLEAR`, not a best-effort answer.
+- `BLANK`, `MULTIPLE`, and `UNCLEAR` questions must be decided by the Teacher (a letter, or Blank confirmed) before a Result can be saved. The Teacher may also change a `MARKED` answer. The Teacher's decision is authoritative, and the Result keeps both what was read and what was decided.
+- A photo that cannot be trusted is refused with a reason and produces no answers and no score: too few pixels, corner markers not all visible, sheet too far away, too steep an angle, not an Answer Checker sheet, a sheet for another question count, blurred, or badly lit.
+- Only the project's own generated answer sheet is supported. Arbitrary third-party sheets are out of scope.
+- The app does **not** try to read a handwritten Student name or Subject. That needs OCR or handwriting recognition, which is outside the product because a misread could attach a score to the wrong Student.
+- The Teacher selects the Answer Key and the Student manually.
+- Optional/Future: the sheet may carry a QR code or a bubbled Student ID for automatic identification. Any automatically detected identity must be shown to the Teacher for confirmation before saving.
+- The branded ZipGrade sheet used as a visual reference must not be copied or distributed. The project's sheet is its own.
+- **Thresholds are initial values, not final.** Every image threshold is in one place (`OMR_SETTINGS`) and every classification threshold in another (`DETECTION_THRESHOLDS`). They were set on generated test images and accepted on one phone. They have not been calibrated across pencils, pens, printers, lighting conditions, cameras, and erasures, and must not be documented as final until they are.
+- No AI/LLM inference and no remote call.
 
 ## Data Truth
 
@@ -381,8 +407,8 @@ Planned. OpenCV and a camera library are not installed.
 - Record IDs are UUIDs generated on the device, not auto-increment integers.
 - Timestamps are UTC ISO-8601 strings as `Date.prototype.toISOString()` produces them.
 - Tables are `STRICT`. Foreign-key enforcement is turned on, and verified, on every connection. Journaling is WAL.
-- Schema changes are made only through ordered, versioned migrations in `src/core/infrastructure/database/migrations.ts`, one file per migration. The schema version is stored in `PRAGMA user_version`. The latest version is **4**.
-- A migration that has run on a device is frozen. Migrations 1 to 4 have run on a physical Android phone; never edit them. Change the schema by appending migration 5.
+- Schema changes are made only through ordered, versioned migrations in `src/core/infrastructure/database/migrations.ts`, one file per migration. The schema version is stored in `PRAGMA user_version`. The latest version is **6**.
+- A migration that has run on a device is frozen. Migrations 1 to 6 have run on a physical Android phone; never edit them. Change the schema by appending migration 7.
 - The schema is the evidence of what is implemented. The implemented schema is drawn in [diagrams.md](./diagrams.md#implemented-sqlite-schema).
 - Do not add role, permission, account, teacher, or synchronization tables.
 
@@ -393,13 +419,13 @@ Permanent physical deletion is mandatory.
 - "Delete Permanently" means the local domain record is **physically removed** from SQLite.
 - It is not `isDeleted = true`. It is not `status = archived`. There is no `deleted_at` column, tombstone, or soft-delete flag, and one must not be added. An archive feature, if ever added, is a separate feature.
 - Deletion requires explicit confirmation that names the record and states the action cannot be undone.
-- A shared parent record must not silently destroy unrelated records. A Class with Students, a Subject with Answer Keys, and a Student or Answer Key with Results are blocked from deletion (`ON DELETE RESTRICT`) until those records are removed deliberately.
+- A shared parent record must not silently destroy unrelated records. A Class with Students or with Results scanned under it, a Subject with Answer Keys, and a Student or Answer Key with Results are blocked from deletion (`ON DELETE RESTRICT`) until those records are removed deliberately.
 - Dependent rows that cannot exist on their own are removed with their parent: a Result's answer rows and scan metadata, an Answer Key's items, and the Subject-to-Class assignment rows of a deleted Subject or Class.
 - Deleting a Result removes its answer rows and scan metadata. The local image paths are collected before the database deletion is committed, and the files are deleted after the commit.
 - Deletion leaves nothing behind: no tombstone, no soft-deleted row, and no synchronization instruction.
 - Because there is no backup, a permanent deletion cannot be recovered.
 
-Implemented today: permanent deletion of Subjects, Classes, assignments, Students, and Answer Keys. Result deletion and file cleanup are Planned.
+Implemented today: permanent deletion of Subjects, Classes, assignments, Students, and Answer Keys. Result deletion is Planned. Until it exists, a Student, Answer Key, or Class that has Results cannot be deleted.
 
 ## Excluded: Cloud and Synchronization
 
@@ -423,7 +449,7 @@ A manual backup/export and restore feature that works on local files is a possib
 
 - Student information and scanned sheets are personal data stored on the Teacher's device.
 - The data is protected only by the operating system's app sandbox and the device's own lock. The application implements no encryption, authentication, or access control. Do not claim otherwise.
-- Scan images should not be retained longer than necessary.
+- Scan images are kept to the minimum: the camera's photo is deleted as soon as the sheet is read or refused, and one flattened image is kept per saved Result, in the app's private storage, until that Result is deleted. Images never go to the device gallery.
 - The application talks to no service, so it holds no API keys, tokens, or credentials. None may be added.
 - Secrets must never be committed to source code.
 
@@ -459,7 +485,7 @@ If the implementation disagrees with the architecture documentation, **report th
 7. Do not replace permanent physical deletion with soft deletion, tombstones, or archiving.
 8. Do not move OMR processing to a required remote API.
 9. Do not use AI/LLM inference as the answer-recognition mechanism.
-10. Do not hard-code OMR thresholds as final without calibration evidence.
+10. Do not treat OMR thresholds as final without calibration evidence, and keep them in `OMR_SETTINGS` and `DETECTION_THRESHOLDS`, not scattered through the code.
 11. Respect the clean architecture layer rules: dependencies point inward, SQL stays in infrastructure, route files stay thin.
 12. Do not add empty layers, placeholder interfaces, or state/DI frameworks without a current need.
 13. Do not install Supabase, MongoDB, or any cloud, synchronization, backend, or authentication dependency; they are excluded. Do not install OpenCV or Drizzle without an explicit decision recorded here.
@@ -467,3 +493,4 @@ If the implementation disagrees with the architecture documentation, **report th
 15. Do not add Subjects, Classes, or Settings to the bottom navigation.
 16. Do not edit `docs/` while it is frozen.
 17. Clearly distinguish Implemented, Planned, and Optional/Future features.
+18. Do not reintroduce a fixed-size answer sheet, a bundled sheet file, or a fixed limit of 40 questions.
