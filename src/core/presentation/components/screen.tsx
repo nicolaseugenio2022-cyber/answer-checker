@@ -1,4 +1,4 @@
-import type { PropsWithChildren } from 'react';
+import type { PropsWithChildren, ReactNode } from 'react';
 import { ScrollView, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -11,6 +11,8 @@ type ScreenProps = PropsWithChildren<{
   title?: string;
   /** Adds a back button to the header, for screens opened from Home. */
   showBack?: boolean;
+  /** Drawn over the scrolling body and not scrolled with it, such as a `Notice`. */
+  overlay?: ReactNode;
 }>;
 
 /**
@@ -19,7 +21,7 @@ type ScreenProps = PropsWithChildren<{
  * the scene, so the body ends with exactly enough room for its last item to
  * scroll clear of the bar and the gesture area.
  */
-export function Screen({ children, title, showBack }: ScreenProps) {
+export function Screen({ children, title, showBack, overlay }: ScreenProps) {
   const insets = useSafeAreaInsets();
 
   return (
@@ -47,6 +49,7 @@ export function Screen({ children, title, showBack }: ScreenProps) {
           {children}
         </View>
       </ScrollView>
+      {overlay}
     </View>
   );
 }

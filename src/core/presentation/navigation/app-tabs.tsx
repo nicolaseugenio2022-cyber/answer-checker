@@ -8,8 +8,9 @@ import { SECONDARY_DESTINATIONS, TAB_DESTINATIONS } from './destinations';
 
 /**
  * The app's navigation shell: five bottom tabs, plus secondary screens that keep
- * the tab bar visible. Every route is a tab screen, so each one is reachable by
- * deep link and by the Android back button. The navigator draws no header:
+ * the tab bar visible. Every route is a screen of this navigator, so each one
+ * is reachable by deep link and by the Android back button, but only the five
+ * TAB_DESTINATIONS are drawn in the bar; a secondary screen shows Home selected. The navigator draws no header:
  * each screen renders the shared compact ScreenHeader (Home draws its own).
  */
 export function AppTabs() {

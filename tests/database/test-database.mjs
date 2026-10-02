@@ -27,7 +27,12 @@ export function openTestDatabase() {
     execAsync: async (sql) => {
       raw.exec(sql);
     },
-    getFirstAsync: async (sql) => raw.prepare(sql).get() ?? null,
+    getFirstAsync: async (sql, params = []) => raw.prepare(sql).get(...params) ?? null,
+    getAllAsync: async (sql, params = []) => raw.prepare(sql).all(...params),
+    runAsync: async (sql, params = []) => {
+      const result = raw.prepare(sql).run(...params);
+      return { changes: Number(result.changes) };
+    },
     withExclusiveTransactionAsync: async (task) => {
       const connection = open();
       try {

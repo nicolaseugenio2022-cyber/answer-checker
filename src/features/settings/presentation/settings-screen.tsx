@@ -1,12 +1,8 @@
-import { useRouter } from 'expo-router';
-import BookOpen from 'lucide-react-native/icons/book-open';
 import Moon from 'lucide-react-native/icons/moon';
 import Sun from 'lucide-react-native/icons/sun';
-import Users from 'lucide-react-native/icons/users';
 import { useColorScheme } from 'nativewind';
 import { View } from 'react-native';
 
-import { Item, ItemGroup } from '@/core/presentation/components/item';
 import { Screen } from '@/core/presentation/components/screen';
 import { Button } from '@/core/presentation/components/ui/button';
 import { Icon } from '@/core/presentation/components/ui/icon';
@@ -22,7 +18,6 @@ function SectionHeading({ children }: { children: string }) {
 }
 
 export function SettingsScreen() {
-  const router = useRouter();
   const { colorScheme, toggleColorScheme } = useColorScheme();
   const isDark = colorScheme === 'dark';
 
@@ -39,14 +34,6 @@ export function SettingsScreen() {
             <Text>{isDark ? 'Switch to light theme' : 'Switch to dark theme'}</Text>
           </Button>
         </View>
-      </View>
-
-      <View className="gap-3">
-        <SectionHeading>Manage</SectionHeading>
-        <ItemGroup>
-          <Item title="Classes" icon={Users} onPress={() => router.navigate('/classes')} />
-          <Item title="Subjects" icon={BookOpen} onPress={() => router.navigate('/subjects')} />
-        </ItemGroup>
       </View>
 
       <View className="gap-3">

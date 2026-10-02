@@ -17,3 +17,8 @@ export function DatabaseProvider({ children }: PropsWithChildren) {
 export function useDatabase(): SQLiteDatabase {
   throw new DatabaseError('The local database is not available in the web preview.');
 }
+
+/** Always null on web: screens then show an honest device-only state. */
+export function useDatabaseIfAvailable(): SQLiteDatabase | null {
+  return null;
+}

@@ -22,7 +22,7 @@ import { cn } from '@/core/presentation/lib/utils';
 
 import { useGreeting } from './greeting';
 
-type Shortcut = { label: string; icon: LucideIcon; href: Href };
+type Shortcut = { label: string; description?: string; icon: LucideIcon; href: Href };
 
 const SHORTCUTS: readonly Shortcut[] = [
   { label: 'Create exam', icon: FilePlus, href: '/exams' },
@@ -66,9 +66,19 @@ const ACTIVITY: readonly ActivityRow[] = [
 ];
 
 const MORE: readonly Shortcut[] = [
-  { label: 'Classes', icon: Users, href: '/classes' },
-  { label: 'Subjects', icon: BookOpen, href: '/subjects' },
-  { label: 'Settings', icon: Settings, href: '/settings' },
+  {
+    label: 'Classes',
+    description: 'Student groups, such as Grade 11 STEM-A or BSIT 1A',
+    icon: Users,
+    href: '/classes',
+  },
+  {
+    label: 'Subjects',
+    description: 'What you teach, such as Mathematics or Data Structures',
+    icon: BookOpen,
+    href: '/subjects',
+  },
+  { label: 'Settings', description: 'Theme and your data', icon: Settings, href: '/settings' },
 ];
 
 const FOCUS_RING = 'web:outline-none web:focus-visible:ring-2 web:focus-visible:ring-ring';
@@ -190,7 +200,8 @@ export function HomeScreen() {
           {/* 14dp icon on an 18dp first line: 2dp down centers it on that line. */}
           <Icon as={Info} size={14} className="mt-0.5 text-muted-foreground" />
           <Text className="flex-1 text-[13px] leading-[18px] text-muted-foreground">
-            These features are not built yet. Each screen explains what it will do.
+            Scanning, exams, students, and results are not built yet. Each screen explains what it
+            will do.
           </Text>
         </View>
       </View>
@@ -218,6 +229,7 @@ export function HomeScreen() {
             <Item
               key={item.label}
               title={item.label}
+              description={item.description}
               icon={item.icon}
               onPress={() => router.navigate(item.href)}
             />

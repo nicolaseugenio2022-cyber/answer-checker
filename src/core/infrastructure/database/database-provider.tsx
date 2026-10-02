@@ -31,3 +31,12 @@ export function DatabaseProvider({ children }: PropsWithChildren) {
 export function useDatabase(): SQLiteDatabase {
   return useSQLiteContext();
 }
+
+/**
+ * The same connection, or null on a platform that has no database (the web
+ * preview). The composition root uses this to decide whether to build the
+ * use cases at all.
+ */
+export function useDatabaseIfAvailable(): SQLiteDatabase | null {
+  return useSQLiteContext();
+}

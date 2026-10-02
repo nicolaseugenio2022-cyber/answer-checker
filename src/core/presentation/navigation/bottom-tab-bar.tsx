@@ -19,7 +19,7 @@ import { usePressFeedback } from '@/core/presentation/hooks/use-press-feedback';
 import { THEME } from '@/core/presentation/lib/theme';
 import { cn } from '@/core/presentation/lib/utils';
 
-import { TAB_DESTINATIONS, type Destination } from './destinations';
+import { HOME_ROUTE, TAB_DESTINATIONS, type Destination } from './destinations';
 import {
   TAB_BAR_BOTTOM_GAP,
   TAB_BAR_HEIGHT,
@@ -229,7 +229,12 @@ function TabItem({ destination, isActive, onPress }: TabItemProps) {
  */
 export function BottomTabBar({ state, navigation, insets }: BottomTabBarProps) {
   const { colorScheme } = useColorScheme();
-  const activeRoute = state.routes[state.index]?.name;
+  const currentRoute = state.routes[state.index]?.name;
+  // A secondary screen (Classes, Subjects, Settings) belongs to Home, so Home
+  // stays selected while it is open. The bar never gains a sixth item.
+  const selectedRoute = TAB_DESTINATIONS.some((tab) => tab.route === currentRoute)
+    ? currentRoute
+    : HOME_ROUTE;
 
   return (
     <>
@@ -273,14 +278,16 @@ export function BottomTabBar({ state, navigation, insets }: BottomTabBarProps) {
               const route = state.routes.find((candidate) => candidate.name === destination.route);
               if (!route) return null;
 
-              const isActive = destination.route === activeRoute;
+              const isActive = destination.route === selectedRoute;
+              // On a secondary screen Home is selected but not current: pressing it goes Home.
+              const isCurrent = destination.route === currentRoute;
               const onPress = () => {
                 const event = navigation.emit({
                   type: 'tabPress',
                   target: route.key,
                   canPreventDefault: true,
                 });
-                if (!isActive && !event.defaultPrevented) {
+                if (!isCurrent && !event.defaultPrevented) {
                   navigation.navigate(route.name, route.params);
                 }
               };
