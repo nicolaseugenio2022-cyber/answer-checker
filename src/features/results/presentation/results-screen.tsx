@@ -21,6 +21,8 @@ import { Notice, type NoticeMessage } from '@/core/presentation/components/notic
 import { PickerSheet, type PickerOption } from '@/core/presentation/components/picker-sheet';
 import { Screen } from '@/core/presentation/components/screen';
 import { SearchField } from '@/core/presentation/components/search-field';
+import { Pending, Skeleton, SkeletonRows } from '@/core/presentation/components/skeleton';
+import { useLoadingPhase } from '@/core/presentation/hooks/use-loading-phase';
 import { Button } from '@/core/presentation/components/ui/button';
 import { Icon } from '@/core/presentation/components/ui/icon';
 import { Text } from '@/core/presentation/components/ui/text';
@@ -136,6 +138,10 @@ export function ResultsScreen() {
   const [picker, setPicker] = useState<FilterField | null>(null);
   const [openedId, setOpenedId] = useState<string | null>(null);
   const [notice, setNotice] = useState<NoticeMessage | null>(null);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const loadingPhase = useLoadingPhase(results !== null && loaded.status === 'loading');
+  // A refresh of a list already on screen: the rows stay, the header shows a small spinner.
+  const refreshPhase = useLoadingPhase(isRefreshing && loaded.status === 'ready');
 
   // Tells a page that arrives late that the list has been read again since.
   const generation = useRef(0);
@@ -167,6 +173,7 @@ export function ResultsScreen() {
       const isCurrent = () => generation.current === current;
       // Finishes or undoes a deletion that was interrupted; never blocks the list.
       void results.settleInterruptedDeletions();
+      setIsRefreshing(true);
       Promise.all([
         results.listResults({ filter, search }),
         results.countResults(filter, search),
@@ -174,6 +181,7 @@ export function ResultsScreen() {
       ]).then(
         ([page, counts, filterLinks]) => {
           if (!isCurrent()) return;
+          setIsRefreshing(false);
           // Opened from Home's recent results: show that result over the list.
           const intent = takeIntent('results');
           if (intent) setOpenedId(intent.resultId);
@@ -189,7 +197,9 @@ export function ResultsScreen() {
         },
         (error) => {
           console.error(error);
-          if (isCurrent()) setLoaded({ status: 'failed' });
+          if (!isCurrent()) return;
+          setIsRefreshing(false);
+          setLoaded({ status: 'failed' });
         }
       );
       return () => {
@@ -353,6 +363,7 @@ export function ResultsScreen() {
     <Screen
       title={destinationTitle('results')}
       scrollable={false}
+      refreshPhase={refreshPhase}
       overlay={
         notice && <Notice key={notice.id} notice={notice} onDismiss={() => setNotice(null)} />
       }>
@@ -363,10 +374,18 @@ export function ResultsScreen() {
             nothing to show here.
           </Callout>
         </View>
-      ) : loaded.status === 'loading' ? (
-        <View accessible accessibilityLabel="Loading" className="min-h-12 flex-row items-center gap-3 px-4 pt-2">
-          <ActivityIndicator className="text-primary" />
-          <Text className="text-sm text-muted-foreground">Loading</Text>
+      ) : loaded.status === 'loading' || loadingPhase !== 'content' ? (
+        <View className="px-4 pt-2">
+          {/* Search, the four filters, and rows with a score at the end. */}
+          <Pending phase={loadingPhase} label="Loading results" className="gap-3">
+            <Skeleton className="h-12 w-full" />
+            <View className="flex-row flex-wrap gap-2">
+              {[0, 1, 2, 3].map((filter) => (
+                <Skeleton key={filter} className="h-12 min-w-[46%] flex-1" />
+              ))}
+            </View>
+            <SkeletonRows rows={5} lines={3} hasTrailing />
+          </Pending>
         </View>
       ) : loaded.status === 'failed' ? (
         <View className="px-4 pt-2">

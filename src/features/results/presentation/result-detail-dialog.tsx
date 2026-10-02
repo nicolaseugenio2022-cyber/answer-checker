@@ -23,6 +23,8 @@ import { AppBackdrop } from '@/core/presentation/components/app-backdrop';
 import { Callout } from '@/core/presentation/components/callout';
 import { FilterChip } from '@/core/presentation/components/filter-chip';
 import { ModalCard } from '@/core/presentation/components/modal-card';
+import { Pending, Skeleton, SkeletonRows } from '@/core/presentation/components/skeleton';
+import { useLoadingPhase } from '@/core/presentation/hooks/use-loading-phase';
 import { Button } from '@/core/presentation/components/ui/button';
 import { Icon } from '@/core/presentation/components/ui/icon';
 import { Text } from '@/core/presentation/components/ui/text';
@@ -120,7 +122,10 @@ export function ResultDetailDialog({ resultId, onClose, onDeleted }: ResultDetai
     };
   }, [results, resultId, attempt]);
 
-  const result = loaded.status === 'ready' ? loaded.opened.result : null;
+  const loadingPhase = useLoadingPhase(loaded.status === 'loading');
+  // The details stay behind the skeleton until it has had its moment, so they do not flicker in.
+  const result =
+    loaded.status === 'ready' && loadingPhase === 'content' ? loaded.opened.result : null;
   const imageUri = loaded.status === 'ready' && !imageFailed ? loaded.opened.imageUri : null;
 
   async function deletePermanently(target: ResultDetail) {
@@ -180,10 +185,29 @@ export function ResultDetailDialog({ resultId, onClose, onDeleted }: ResultDetai
           </Text>
         </View>
 
-        {loaded.status === 'loading' && (
-          <View accessible accessibilityLabel="Loading" className="flex-row items-center gap-3 p-4">
-            <ActivityIndicator className="text-primary" />
-            <Text className="text-sm text-muted-foreground">Loading</Text>
+        {(loaded.status === 'loading' || (loaded.status === 'ready' && loadingPhase !== 'content')) && (
+          <View className="w-full max-w-2xl self-center px-4 pt-2">
+            {/* The identity card, the score card, the scan, and the first questions. */}
+            <Pending phase={loadingPhase} label="Loading the result" className="gap-5">
+              <View className="gap-3 rounded-lg border border-border bg-card p-4">
+                <Skeleton className="h-5 w-1/2" />
+                <Skeleton className="h-3.5 w-1/3" />
+                <View className="gap-2 border-t border-border pt-3">
+                  <Skeleton className="h-3.5 w-3/5" />
+                  <Skeleton className="h-3.5 w-1/2" />
+                  <Skeleton className="h-3.5 w-2/3" />
+                </View>
+              </View>
+              <View className="gap-3 rounded-lg border border-border bg-card p-4">
+                <Skeleton className="h-8 w-24" />
+                <View className="flex-row gap-4 border-t border-border pt-3">
+                  <Skeleton className="h-4 flex-1" />
+                  <Skeleton className="h-4 flex-1" />
+                </View>
+              </View>
+              <Skeleton className="h-64 w-full" />
+              <SkeletonRows rows={3} hasTrailing />
+            </Pending>
           </View>
         )}
 

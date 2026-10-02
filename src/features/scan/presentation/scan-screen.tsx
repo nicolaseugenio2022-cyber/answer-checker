@@ -15,6 +15,8 @@ import { ModalCard } from '@/core/presentation/components/modal-card';
 import { Notice, type NoticeMessage } from '@/core/presentation/components/notice';
 import { PickerSheet, type PickerOption } from '@/core/presentation/components/picker-sheet';
 import { Screen } from '@/core/presentation/components/screen';
+import { Pending, Skeleton } from '@/core/presentation/components/skeleton';
+import { useLoadingPhase } from '@/core/presentation/hooks/use-loading-phase';
 import { Button } from '@/core/presentation/components/ui/button';
 import { Icon } from '@/core/presentation/components/ui/icon';
 import { Text } from '@/core/presentation/components/ui/text';
@@ -187,6 +189,7 @@ export function ScanScreen() {
   }, [scan]);
 
   const options = loaded.status === 'ready' ? loaded.options : null;
+  const loadingPhase = useLoadingPhase(scan !== null && loaded.status === 'loading');
 
   // A choice that is no longer offered (deleted or reassigned elsewhere) does not count as chosen.
   const subject = options?.subjects.find((option) => option.id === selection.subjectId) ?? null;
@@ -414,11 +417,27 @@ export function ScanScreen() {
           Scanning uses the phone&apos;s camera and its database. This web preview has neither, so
           nothing can be scanned here.
         </Callout>
-      ) : loaded.status === 'loading' ? (
-        <View accessible accessibilityLabel="Loading" className="min-h-12 flex-row items-center gap-3">
-          <ActivityIndicator className="text-primary" />
-          <Text className="text-sm text-muted-foreground">Loading</Text>
-        </View>
+      ) : loaded.status === 'loading' || loadingPhase !== 'content' ? (
+        // The session card with its four rows, and the camera button under it.
+        <Pending phase={loadingPhase} label="Loading the scan setup" className="gap-5">
+          <View className={cn('overflow-hidden rounded-xl', GLASS_CLASSES)}>
+            {[0, 1, 2, 3].map((row) => (
+              <View
+                key={row}
+                className={cn(
+                  'min-h-[68px] flex-row items-center gap-3 px-3 py-2',
+                  row > 0 && 'border-t border-glass-border/15'
+                )}>
+                <Skeleton className="h-7 w-7 rounded-full" />
+                <View className="flex-1 gap-2">
+                  <Skeleton className="h-3 w-16" />
+                  <Skeleton className={row % 2 === 0 ? 'h-3.5 w-1/2' : 'h-3.5 w-2/5'} />
+                </View>
+              </View>
+            ))}
+          </View>
+          <Skeleton className="h-12 w-full" />
+        </Pending>
       ) : loaded.status === 'failed' || options === null ? (
         <Callout
           icon={CircleAlert}

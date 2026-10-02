@@ -18,6 +18,12 @@ import { ItemGroup } from '@/core/presentation/components/item';
 import { Notice, type NoticeMessage } from '@/core/presentation/components/notice';
 import { RowAction } from '@/core/presentation/components/row-action';
 import { Screen } from '@/core/presentation/components/screen';
+import {
+  Pending,
+  SkeletonListControls,
+  SkeletonRows,
+} from '@/core/presentation/components/skeleton';
+import { useLoadingPhase } from '@/core/presentation/hooks/use-loading-phase';
 import { SearchField } from '@/core/presentation/components/search-field';
 import { Button } from '@/core/presentation/components/ui/button';
 import { Icon } from '@/core/presentation/components/ui/icon';
@@ -75,6 +81,7 @@ export function StudentsScreen() {
   const [draft, setDraft] = useState<RosterDraft | null>(null);
   const [isPicking, setIsPicking] = useState(false);
   const [notice, setNotice] = useState<NoticeMessage | null>(null);
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   const isAvailable = useCases !== null && classUseCases !== null;
 
@@ -98,8 +105,10 @@ export function StudentsScreen() {
   useFocusEffect(
     useCallback(() => {
       let isCurrent = true;
+      setIsRefreshing(true);
       load().then((result) => {
         if (!isCurrent) return;
+        setIsRefreshing(false);
         setLoaded(result);
         // Opened from Home's "Add student". Without a class the screen explains what is missing.
         const intent = takeIntent('students');
@@ -116,6 +125,10 @@ export function StudentsScreen() {
   );
 
   const refresh = async () => setLoaded(await load());
+
+  const loadingPhase = useLoadingPhase(isAvailable && loaded.status === 'loading');
+  // A refresh of a list already on screen: the rows stay, the header shows a small spinner.
+  const refreshPhase = useLoadingPhase(isRefreshing && loaded.status === 'ready');
 
   function announce(tone: NoticeMessage['tone'], text: string) {
     setNotice((previous) => ({ id: (previous?.id ?? 0) + 1, tone, text }));
@@ -235,6 +248,7 @@ export function StudentsScreen() {
   return (
     <Screen
       title={destinationTitle('students')}
+      refreshPhase={refreshPhase}
       overlay={
         notice && <Notice key={notice.id} notice={notice} onDismiss={() => setNotice(null)} />
       }>
@@ -264,11 +278,11 @@ export function StudentsScreen() {
           Students are stored in a database on the phone. This web preview has no database, so
           nothing can be added, imported, or shown here.
         </Callout>
-      ) : loaded.status === 'loading' ? (
-        <View accessible accessibilityLabel="Loading students" className="min-h-12 flex-row items-center gap-3">
-          <ActivityIndicator className="text-primary" />
-          <Text className="text-sm text-muted-foreground">Loading students</Text>
-        </View>
+      ) : loaded.status === 'loading' || loadingPhase !== 'content' ? (
+        <Pending phase={loadingPhase} label="Loading students" className="gap-4">
+          <SkeletonListControls chips={3} />
+          <SkeletonRows rows={5} hasTrailing />
+        </Pending>
       ) : loaded.status === 'failed' ? (
         <Callout
           icon={CircleAlert}

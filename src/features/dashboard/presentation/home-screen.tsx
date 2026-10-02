@@ -21,6 +21,14 @@ import { Callout } from '@/core/presentation/components/callout';
 import { GLASS_CLASSES } from '@/core/presentation/components/glass-surface';
 import { Item, ItemGroup } from '@/core/presentation/components/item';
 import { Screen } from '@/core/presentation/components/screen';
+import {
+  RefreshIndicator,
+  Skeleton,
+  SkeletonPulse,
+  SkeletonRows,
+} from '@/core/presentation/components/skeleton';
+import { useLoadingPhase } from '@/core/presentation/hooks/use-loading-phase';
+import type { LoadingPhase } from '@/core/presentation/lib/loading-gate';
 import { Button } from '@/core/presentation/components/ui/button';
 import { Icon } from '@/core/presentation/components/ui/icon';
 import { Text } from '@/core/presentation/components/ui/text';
@@ -37,6 +45,8 @@ import {
   openResultIntent,
   viewAnswerKeyIntent,
 } from '@/features/dashboard/presentation/home-links';
+
+import { usePreferences } from '@/features/settings/presentation/preferences-context';
 
 import { useGreeting } from './greeting';
 
@@ -66,14 +76,16 @@ function SectionHeading({ children }: { children: string }) {
   );
 }
 
-/** A quiet bar that stands in for a value still being read, the size of the value. */
-function Skeleton({ className }: { className: string }) {
+/**
+ * A bar the size of a value that is still being read. It keeps the value's
+ * place from the first frame, so nothing shifts, and becomes visible only if
+ * the reading takes longer than a moment.
+ */
+function ValueSkeleton({ phase, className }: { phase: LoadingPhase; className: string }) {
   return (
-    <View
-      accessible={false}
-      importantForAccessibility="no"
-      className={cn('rounded bg-foreground/10', className)}
-    />
+    <SkeletonPulse className={phase === 'skeleton' ? undefined : 'opacity-0'}>
+      <Skeleton className={className} />
+    </SkeletonPulse>
   );
 }
 
@@ -142,7 +154,8 @@ function QuickAction({ label, icon, onPress }: QuickActionProps) {
 type CountCardProps = {
   /** Null while the first reading is on its way or when it could not be read. */
   value: number | null;
-  isLoading: boolean;
+  /** The phase of the first reading; "content" once it is over. */
+  phase: LoadingPhase;
   /** "student" */
   singular: string;
   /** "students", when it is not the singular plus "s". */
@@ -154,7 +167,7 @@ type CountCardProps = {
 };
 
 /** One count of the overview. The whole card opens the screen the records live on. */
-function CountCard({ value, isLoading, singular, plural, label, icon, onPress }: CountCardProps) {
+function CountCard({ value, phase, singular, plural, label, icon, onPress }: CountCardProps) {
   const { isPressed, pressHandlers } = usePressFeedback();
   return (
     <Pressable
@@ -180,8 +193,8 @@ function CountCard({ value, isLoading, singular, plural, label, icon, onPress }:
           <Text numberOfLines={1} adjustsFontSizeToFit className="text-xl font-semibold leading-7">
             {value.toLocaleString()}
           </Text>
-        ) : isLoading ? (
-          <Skeleton className="my-1.5 h-4 w-10" />
+        ) : phase !== 'content' ? (
+          <ValueSkeleton phase={phase} className="my-1.5 h-4 w-10" />
         ) : (
           <Text className="text-xl font-semibold leading-7 text-muted-foreground">–</Text>
         )}
@@ -271,18 +284,19 @@ function RecentKeyRow({ answerKey, isFirst, onPress }: RowProps & { answerKey: R
   );
 }
 
-/** Two rows of bars the size of a recent row, while the first reading is on its way. */
-function RecentSkeleton() {
+/** Rows of bars the size of the recent rows, while the first reading is on its way. */
+function RecentSkeleton({ phase }: { phase: LoadingPhase }) {
+  // The space is held from the first frame; the bars appear only after a moment.
   return (
-    <View accessible accessibilityLabel="Loading" className="rounded-lg border border-border bg-card">
-      {[0, 1].map((row) => (
-        <View
-          key={row}
-          className={cn('min-h-14 justify-center gap-2 px-3 py-2', row > 0 && 'border-t border-border')}>
-          <Skeleton className="h-3.5 w-2/5" />
-          <Skeleton className="h-3 w-3/5" />
-        </View>
-      ))}
+    <View
+      accessible={phase === 'skeleton'}
+      accessibilityRole="progressbar"
+      accessibilityLabel="Loading"
+      aria-busy
+      className={phase === 'skeleton' ? undefined : 'opacity-0'}>
+      <SkeletonPulse>
+        <SkeletonRows rows={2} hasTrailing />
+      </SkeletonPulse>
     </View>
   );
 }
@@ -291,7 +305,7 @@ type RecentSectionProps = {
   heading: string;
   /** Null while loading or when the list could not be read. */
   isEmpty: boolean | null;
-  isLoading: boolean;
+  phase: LoadingPhase;
   emptyMessage: string;
   emptyAction: ReactNode;
   viewAllLabel: string;
@@ -303,7 +317,7 @@ type RecentSectionProps = {
 function RecentSection({
   heading,
   isEmpty,
-  isLoading,
+  phase,
   emptyMessage,
   emptyAction,
   viewAllLabel,
@@ -314,8 +328,8 @@ function RecentSection({
     <View className="gap-2.5">
       <SectionHeading>{heading}</SectionHeading>
       {isEmpty === null ? (
-        isLoading ? (
-          <RecentSkeleton />
+        phase !== 'content' ? (
+          <RecentSkeleton phase={phase} />
         ) : (
           <Text className="text-sm leading-5 text-muted-foreground">
             This list could not be read just now.
@@ -348,29 +362,42 @@ function RecentSection({
  */
 export function HomeScreen() {
   const router = useRouter();
-  const greeting = useGreeting();
+  const { teacherName } = usePreferences();
+  const greeting = useGreeting(teacherName);
   const dashboard = useDashboardUseCases();
 
   const [data, setData] = useState<Dashboard | null>(null);
   const [reloads, setReloads] = useState(0);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   // One per mounted Home: only the newest reading is kept.
   const [latest] = useState(createLatestRequest);
 
   useFocusEffect(
     useCallback(() => {
       if (!dashboard) return;
-      latest.run(() => dashboard.getDashboard(), setData);
+      setIsRefreshing(true);
+      latest.run(
+        () => dashboard.getDashboard(),
+        (reading) => {
+          setData(reading);
+          setIsRefreshing(false);
+        }
+      );
       return () => latest.cancel();
       // reloads is not read: changing it is what makes "Try again" read again.
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [dashboard, latest, reloads])
   );
 
-  const isLoading = dashboard !== null && data === null;
-  const counts = data?.counts ?? null;
-  const recentResults = data?.recentResults ?? null;
-  const recentAnswerKeys = data?.recentAnswerKeys ?? null;
-  const lastScan = data?.lastScan ?? null;
+  // The first reading: nothing for a moment, then skeleton bars, then the numbers.
+  const phase = useLoadingPhase(dashboard !== null && data === null);
+  // Later readings keep what is on screen and show a small spinner if they take a while.
+  const refreshPhase = useLoadingPhase(isRefreshing && data !== null);
+  const shown = phase === 'content' ? data : null;
+  const counts = shown?.counts ?? null;
+  const recentResults = shown?.recentResults ?? null;
+  const recentAnswerKeys = shown?.recentAnswerKeys ?? null;
+  const lastScan = shown?.lastScan ?? null;
 
   /** Goes to a screen, leaving it something to open when it has one. */
   function open(link: (typeof HOME_LINKS)[keyof typeof HOME_LINKS]) {
@@ -408,6 +435,7 @@ export function HomeScreen() {
           <Text
             role="heading"
             aria-level="1"
+            numberOfLines={2}
             maxFontSizeMultiplier={1.4}
             className="text-xl font-semibold leading-7 tracking-tight">
             {greeting}
@@ -447,7 +475,7 @@ export function HomeScreen() {
         </Callout>
       ) : (
         <>
-          {data?.isIncomplete && (
+          {shown?.isIncomplete && (
             <Callout
               icon={CircleAlert}
               tone="error"
@@ -464,12 +492,15 @@ export function HomeScreen() {
             </Callout>
           )}
 
-          <View className="gap-2.5">
-            <SectionHeading>Overview</SectionHeading>
+          <View className="gap-2.5" aria-busy={phase !== 'content'}>
+            <View className="flex-row items-center justify-between gap-3">
+              <SectionHeading>Overview</SectionHeading>
+              <RefreshIndicator phase={refreshPhase} />
+            </View>
             <View className="flex-row flex-wrap gap-2">
               <CountCard
                 value={counts?.students ?? null}
-                isLoading={isLoading}
+                phase={phase}
                 singular="student"
                 label="Students"
                 icon={GraduationCap}
@@ -477,7 +508,7 @@ export function HomeScreen() {
               />
               <CountCard
                 value={counts?.classes ?? null}
-                isLoading={isLoading}
+                phase={phase}
                 singular="class"
                 plural="classes"
                 label="Classes"
@@ -486,7 +517,7 @@ export function HomeScreen() {
               />
               <CountCard
                 value={counts?.answerKeys ?? null}
-                isLoading={isLoading}
+                phase={phase}
                 singular="answer key"
                 label="Answer Keys"
                 icon={FileCheck}
@@ -494,7 +525,7 @@ export function HomeScreen() {
               />
               <CountCard
                 value={counts?.results ?? null}
-                isLoading={isLoading}
+                phase={phase}
                 singular="result"
                 label="Results"
                 icon={ClipboardCheck}
@@ -514,8 +545,8 @@ export function HomeScreen() {
               <Icon as={CalendarCheck} size={18} className="text-muted-foreground" />
               <Text className="flex-1 text-sm font-medium leading-5">Scanned today</Text>
               {counts === null ? (
-                isLoading ? (
-                  <Skeleton className="h-4 w-8" />
+                phase !== 'content' ? (
+                  <ValueSkeleton phase={phase} className="h-4 w-8" />
                 ) : (
                   <Text className="text-sm text-muted-foreground">–</Text>
                 )
@@ -534,7 +565,7 @@ export function HomeScreen() {
           <RecentSection
             heading="Recent results"
             isEmpty={recentResults === null ? null : recentResults.length === 0}
-            isLoading={isLoading}
+            phase={phase}
             emptyMessage="No saved results yet."
             emptyAction={
               <Button variant="outline" className="h-12 self-start" onPress={() => open(HOME_LINKS.scan)}>
@@ -560,7 +591,7 @@ export function HomeScreen() {
           <RecentSection
             heading="Recent answer keys"
             isEmpty={recentAnswerKeys === null ? null : recentAnswerKeys.length === 0}
-            isLoading={isLoading}
+            phase={phase}
             emptyMessage="No answer keys yet."
             emptyAction={
               <Button

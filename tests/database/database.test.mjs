@@ -27,6 +27,7 @@ const ANSWER_INSERT =
 const EXPECTED_TABLES = [
   'answer_key_items',
   'answer_keys',
+  'app_settings',
   'class_subjects',
   'classes',
   'results',
@@ -147,10 +148,12 @@ describe('fresh database', () => {
     ]);
   });
 
-  it('uses a non-null TEXT primary key named id on every table except the two keyed by a pair', () => {
+  it('uses a non-null TEXT primary key named id on every table of records', () => {
     for (const table of EXPECTED_TABLES) {
       // These two are identified by a pair of columns, checked in their own migration tests.
       if (table === 'class_subjects' || table === 'answer_key_items') continue;
+      // The app's own preferences are named values, keyed by their name.
+      if (table === 'app_settings') continue;
       const id = t.all(`SELECT * FROM pragma_table_info('${table}')`).find((column) => column.name === 'id');
       assert.ok(id, `${table} has no id column`);
       assert.equal(id.type, 'TEXT', table);

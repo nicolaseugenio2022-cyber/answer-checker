@@ -197,11 +197,13 @@ export function createSqliteResultsRepository(db: SqlConnection): ResultsReposit
           student_name: string;
           student_number: string;
         }>(
-          `SELECT DISTINCT k.subject_id, s.name AS subject_name,
+          // The combinations are reduced to distinct ids first, so the names are
+          // joined once per combination and not once per result.
+          `SELECT k.subject_id, s.name AS subject_name,
                   r.answer_key_id, k.name AS answer_key_name,
                   r.class_id, c.name AS class_name,
                   r.student_id, st.full_name AS student_name, st.student_number
-             FROM results r
+             FROM (SELECT DISTINCT answer_key_id, class_id, student_id FROM results) r
              JOIN answer_keys k ON k.id = r.answer_key_id
              JOIN subjects s ON s.id = k.subject_id
              JOIN classes c ON c.id = r.class_id

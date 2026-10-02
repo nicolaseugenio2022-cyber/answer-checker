@@ -4,6 +4,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { AppBackdrop } from '@/core/presentation/components/app-backdrop';
 import { ScreenHeader } from '@/core/presentation/components/screen-header';
+import type { LoadingPhase } from '@/core/presentation/lib/loading-gate';
 import { tabBarClearance } from '@/core/presentation/navigation/tab-bar-metrics';
 
 type ScreenProps = PropsWithChildren<{
@@ -19,6 +20,12 @@ type ScreenProps = PropsWithChildren<{
    * `tabBarClearance(insets.bottom)` itself.
    */
   scrollable?: boolean;
+  /**
+   * The phase of a background refresh of a screen that already shows its
+   * content (`useLoadingPhase(isRefreshing)`). The header shows a small
+   * spinner; the content stays as it is.
+   */
+  refreshPhase?: LoadingPhase;
 }>;
 
 /**
@@ -27,7 +34,14 @@ type ScreenProps = PropsWithChildren<{
  * the scene, so the body ends with exactly enough room for its last item to
  * scroll clear of the bar and the gesture area.
  */
-export function Screen({ children, title, showBack, overlay, scrollable = true }: ScreenProps) {
+export function Screen({
+  children,
+  title,
+  showBack,
+  overlay,
+  scrollable = true,
+  refreshPhase,
+}: ScreenProps) {
   const insets = useSafeAreaInsets();
 
   return (
@@ -35,7 +49,9 @@ export function Screen({ children, title, showBack, overlay, scrollable = true }
       className="flex-1"
       style={{ paddingTop: insets.top, paddingLeft: insets.left, paddingRight: insets.right }}>
       <AppBackdrop />
-      {title !== undefined && <ScreenHeader title={title} showBack={showBack} />}
+      {title !== undefined && (
+        <ScreenHeader title={title} showBack={showBack} refreshPhase={refreshPhase} />
+      )}
       {scrollable ? (
         <ScrollView
           style={{ flex: 1 }}

@@ -225,8 +225,8 @@ describe('migration 7: the names a result was saved under', () => {
 
   it('brings a fresh database to version 7 with the snapshot columns and the list index', async () => {
     t = openTestDatabase();
-    assert.equal(await initializeDatabase(t.db), 7);
-    assert.equal(LATEST, 7);
+    assert.equal(await initializeDatabase(t.db, MIGRATIONS.slice(0, 7)), 7);
+    assert.ok(LATEST >= 7);
     assert.deepEqual(columns('results'), RESULT_COLUMNS);
     assert.equal(t.get("SELECT strict FROM pragma_table_list WHERE name = 'results'").strict, 1);
     assert.deepEqual(indexes(), [
@@ -246,7 +246,7 @@ describe('migration 7: the names a result was saved under', () => {
     const untouched = ['subjects', 'classes', 'students', 'answer_keys', 'answer_key_items', 'student_answers', 'scan_records', 'class_subjects'];
     const before = Object.fromEntries(untouched.map((table) => [table, plain(t.all(`SELECT * FROM ${table} ORDER BY 1, 2`))]));
 
-    assert.equal(await initializeDatabase(t.db), 7);
+    assert.equal(await initializeDatabase(t.db, MIGRATIONS.slice(0, 7)), 7);
     reload();
 
     for (const table of untouched) {
@@ -317,7 +317,7 @@ describe('migration 7: the names a result was saved under', () => {
     t.run("DELETE FROM students WHERE id = 'stu-1'");
     const before = plain(t.all('SELECT * FROM results'));
 
-    await assert.rejects(initializeDatabase(t.db), (error) => {
+    await assert.rejects(initializeDatabase(t.db, MIGRATIONS.slice(0, 7)), (error) => {
       assert.equal(error.name, 'MigrationFailedError');
       assert.equal(error.version, 7);
       return true;

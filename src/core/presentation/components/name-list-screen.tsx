@@ -6,7 +6,10 @@ import Smartphone from 'lucide-react-native/icons/smartphone';
 import Trash from 'lucide-react-native/icons/trash';
 import { useFocusEffect } from 'expo-router';
 import { useCallback, useState, type ReactNode } from 'react';
-import { AccessibilityInfo, ActivityIndicator, View } from 'react-native';
+
+import { Pending, SkeletonRows } from '@/core/presentation/components/skeleton';
+import { useLoadingPhase } from '@/core/presentation/hooks/use-loading-phase';
+import { AccessibilityInfo, View } from 'react-native';
 
 import { Callout } from '@/core/presentation/components/callout';
 import { DeleteDialog } from '@/core/presentation/components/delete-dialog';
@@ -113,6 +116,10 @@ export function NameListScreen({
   const [deletion, setDeletion] = useState<DeleteState | null>(null);
   const [notice, setNotice] = useState<NoticeMessage | null>(null);
   const [rowDialogRecord, setRowDialogRecord] = useState<NamedRecord | null>(null);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const loadingPhase = useLoadingPhase(operations !== null && list.status === 'loading');
+  // A refresh of a list already on screen: the rows stay, the header shows a small spinner.
+  const refreshPhase = useLoadingPhase(isRefreshing && list.status === 'ready');
 
   // Loads when the screen opens and again each time it is shown: screens stay
   // mounted in the tab shell, and another screen may have changed what a row
@@ -121,15 +128,21 @@ export function NameListScreen({
     useCallback(() => {
       if (!operations) return;
       let isCurrent = true;
-      operations.list().then(
-        (records) => {
-          if (isCurrent) setList({ status: 'ready', records });
-        },
-        (error) => {
-          console.error(error);
-          if (isCurrent) setList({ status: 'failed' });
-        }
-      );
+      setIsRefreshing(true);
+      operations
+        .list()
+        .then(
+          (records) => {
+            if (isCurrent) setList({ status: 'ready', records });
+          },
+          (error) => {
+            console.error(error);
+            if (isCurrent) setList({ status: 'failed' });
+          }
+        )
+        .finally(() => {
+          if (isCurrent) setIsRefreshing(false);
+        });
       return () => {
         isCurrent = false;
       };
@@ -215,6 +228,7 @@ export function NameListScreen({
     <Screen
       title={title}
       showBack
+      refreshPhase={refreshPhase}
       overlay={
         notice && <Notice key={notice.id} notice={notice} onDismiss={() => setNotice(null)} />
       }>
@@ -233,14 +247,11 @@ export function NameListScreen({
           {capitalize(pluralNoun)} are stored in a database on the phone. This web preview has no
           database, so nothing can be added or shown here.
         </Callout>
-      ) : list.status === 'loading' ? (
-        <View
-          accessible
-          accessibilityLabel={`Loading ${pluralNoun}`}
-          className="min-h-12 flex-row items-center gap-3">
-          <ActivityIndicator className="text-primary" />
-          <Text className="text-sm text-muted-foreground">Loading {pluralNoun}</Text>
-        </View>
+      ) : list.status === 'loading' || loadingPhase !== 'content' ? (
+        // Nothing for the first moment, then rows shaped like the list that is coming.
+        <Pending phase={loadingPhase} label={`Loading ${pluralNoun}`}>
+          <SkeletonRows rows={4} hasTrailing />
+        </Pending>
       ) : list.status === 'failed' ? (
         <Callout
           icon={CircleAlert}

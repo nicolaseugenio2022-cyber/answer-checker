@@ -387,7 +387,7 @@ export function AnswerKeyFormDialog({
                 {todo.length === 0 ? `All ${countOf(questionCount, 'question')} answered.` : todo.join(' ')}
               </Text>
               {firstUnanswered >= 0 && !isLocked && (
-                <Button variant="ghost" className="h-11 px-3" onPress={goToFirstUnanswered}>
+                <Button variant="ghost" className="h-12 px-3" onPress={goToFirstUnanswered}>
                   <Text className="text-primary">Go to {firstUnanswered + 1}</Text>
                 </Button>
               )}

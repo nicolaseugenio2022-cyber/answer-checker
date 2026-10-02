@@ -1,21 +1,18 @@
 import { useSyncExternalStore } from 'react';
 
-export function greetingForHour(hour: number): string {
-  if (hour < 12) return 'Good morning, Teacher';
-  if (hour < 18) return 'Good afternoon, Teacher';
-  return 'Good evening, Teacher';
-}
+import { greetingForHour, neutralGreeting } from './greeting-text';
 
 const subscribeToNothing = () => () => {};
 
 /**
- * Greeting for the current time of day. The static web preview is rendered at
- * build time, so it starts with a time-neutral greeting and switches after hydration.
+ * Greeting for the current time of day, with the optional display name from
+ * Settings. The static web preview is rendered at build time, so it starts
+ * with a time-neutral greeting and switches after hydration.
  */
-export function useGreeting(): string {
+export function useGreeting(name = ''): string {
   return useSyncExternalStore(
     subscribeToNothing,
-    () => greetingForHour(new Date().getHours()),
-    () => 'Welcome, Teacher'
+    () => greetingForHour(new Date().getHours(), name),
+    () => neutralGreeting(name)
   );
 }

@@ -9,7 +9,7 @@ import Search from 'lucide-react-native/icons/search';
 import Smartphone from 'lucide-react-native/icons/smartphone';
 import Trash from 'lucide-react-native/icons/trash';
 import { useCallback, useState } from 'react';
-import { AccessibilityInfo, ActivityIndicator, Pressable, ScrollView, View } from 'react-native';
+import { AccessibilityInfo, Pressable, ScrollView, View } from 'react-native';
 
 import { Callout } from '@/core/presentation/components/callout';
 import { DeleteDialog } from '@/core/presentation/components/delete-dialog';
@@ -18,6 +18,12 @@ import { ItemGroup } from '@/core/presentation/components/item';
 import { Notice, type NoticeMessage } from '@/core/presentation/components/notice';
 import { RowAction } from '@/core/presentation/components/row-action';
 import { Screen } from '@/core/presentation/components/screen';
+import {
+  Pending,
+  SkeletonListControls,
+  SkeletonRows,
+} from '@/core/presentation/components/skeleton';
+import { useLoadingPhase } from '@/core/presentation/hooks/use-loading-phase';
 import { SearchField } from '@/core/presentation/components/search-field';
 import { Button } from '@/core/presentation/components/ui/button';
 import { Icon } from '@/core/presentation/components/ui/icon';
@@ -91,8 +97,12 @@ export function AnswerKeysScreen() {
   const [viewed, setViewed] = useState<AnswerKeyDetails | null>(null);
   const [deletion, setDeletion] = useState<DeleteState | null>(null);
   const [notice, setNotice] = useState<NoticeMessage | null>(null);
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   const isAvailable = useCases !== null && subjectUseCases !== null;
+  const loadingPhase = useLoadingPhase(isAvailable && loaded.status === 'loading');
+  // A refresh of a list already on screen: the rows stay, the header shows a small spinner.
+  const refreshPhase = useLoadingPhase(isRefreshing && loaded.status === 'ready');
 
   /** Reads the keys and the subjects together, so the two always agree. */
   const load = useCallback(async (): Promise<Loaded> => {
@@ -114,8 +124,10 @@ export function AnswerKeysScreen() {
   useFocusEffect(
     useCallback(() => {
       let isCurrent = true;
+      setIsRefreshing(true);
       load().then((result) => {
         if (!isCurrent) return;
+        setIsRefreshing(false);
         setLoaded(result);
         // Opened from Home with something to do, once the list is known.
         const intent = takeIntent('keys');
@@ -263,6 +275,7 @@ export function AnswerKeysScreen() {
   return (
     <Screen
       title={destinationTitle('keys')}
+      refreshPhase={refreshPhase}
       overlay={
         notice && <Notice key={notice.id} notice={notice} onDismiss={() => setNotice(null)} />
       }>
@@ -281,14 +294,11 @@ export function AnswerKeysScreen() {
           Answer keys are stored in a database on the phone. This web preview has no database, so
           nothing can be added or shown here.
         </Callout>
-      ) : loaded.status === 'loading' ? (
-        <View
-          accessible
-          accessibilityLabel="Loading answer keys"
-          className="min-h-12 flex-row items-center gap-3">
-          <ActivityIndicator className="text-primary" />
-          <Text className="text-sm text-muted-foreground">Loading answer keys</Text>
-        </View>
+      ) : loaded.status === 'loading' || loadingPhase !== 'content' ? (
+        <Pending phase={loadingPhase} label="Loading answer keys" className="gap-4">
+          <SkeletonListControls chips={3} />
+          <SkeletonRows rows={4} hasTrailing />
+        </Pending>
       ) : loaded.status === 'failed' ? (
         <Callout
           icon={CircleAlert}

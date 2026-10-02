@@ -9,7 +9,13 @@ import { DatabaseError } from './database-error';
  * database-provider.tsx; this file keeps expo-sqlite's native code out of the
  * web bundle (the import above is type-only).
  */
-export function DatabaseProvider({ children }: PropsWithChildren) {
+/** Kept in step with database-provider.tsx; nothing is ever reported here. */
+export type DatabaseStage = 'opened' | 'migrated' | 'failed';
+
+export function DatabaseProvider({
+  children,
+}: PropsWithChildren<{ onStage?: (stage: DatabaseStage, ms?: number) => void }>) {
+  // There is no database to prepare, so no stage is ever reported.
   return children;
 }
 

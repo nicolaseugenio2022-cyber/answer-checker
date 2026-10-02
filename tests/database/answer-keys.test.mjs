@@ -216,7 +216,9 @@ function assertConverted() {
 }
 
 function assertSchemaIsClean() {
-  assert.deepEqual(tables(), [
+  // app_settings arrives with migration 8 and holds no academic data; this
+  // check is about the academic tables at whichever version the test is on.
+  assert.deepEqual(tables().filter((name) => name !== 'app_settings'), [
     'answer_key_items',
     'answer_keys',
     'class_subjects',
