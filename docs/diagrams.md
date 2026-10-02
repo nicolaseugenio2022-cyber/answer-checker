@@ -12,18 +12,18 @@ Implemented. This is what the code contains today.
 flowchart TD
     subgraph Device["Teacher's device - no network used"]
         ROOT["src/app/_layout.tsx: composition root"]
-        UI["Presentation: Home, Answer Keys, Scan, Students, Subjects, Classes, Settings, Results placeholder"]
+        UI["Presentation: Home, Answer Keys, Scan, Students, Results, Subjects, Classes, Settings"]
         CAM["Presentation: camera capture, expo-camera"]
-        UC["Application: subject, class, class-subject, student, answer key, and scan use cases"]
+        UC["Application: subject, class, class-subject, student, answer key, scan, results, and demo-data use cases"]
         DOMAIN["Domain: Subject, SchoolClass, Student, AnswerKey, roster and CSV rules, sheet template and PDF, detection, scoring"]
         REPO["Infrastructure: SQLite repositories"]
         FILES["Infrastructure: roster file picker"]
         OMR["Infrastructure: sheet reader in TypeScript, PNG codec"]
-        IMAGES["Infrastructure: scan image store, printable sheet sharing"]
+        IMAGES["Infrastructure: scan image store, result image store, printable sheet sharing"]
         CORE["Infrastructure: database provider, migrations, runInTransaction"]
-        DB[("answer-checker.db - schema version 6")]
+        DB[("answer-checker.db - schema version 7")]
         CSV["CSV file chosen by the Teacher"]
-        STORE["App-private files: cache and documents/scans"]
+        STORE["App-private files: cache, documents/scans, documents/scans-deleting"]
     end
 
     ROOT --> UI
@@ -46,33 +46,7 @@ flowchart TD
 
 ## Target Architecture
 
-The remaining target is Results: viewing saved results and deleting them with their image. Everything else in the target is implemented above.
-
-```mermaid
-flowchart TD
-    subgraph Device["Teacher's device - no network used"]
-        UI["Mobile presentation layer: React Native Reusables + NativeWind"]
-        APP["Application use cases"]
-        DOMAIN["Domain rules"]
-        subgraph Infra["Local infrastructure"]
-            OMR["Sheet reader, TypeScript"]
-            REPO["SQLite repositories"]
-            FILES["Local file storage: scan images"]
-            RES["Result viewing and deletion - planned"]
-        end
-        DB[("Local SQLite database")]
-    end
-
-    UI --> APP
-    APP --> DOMAIN
-    APP --> OMR
-    APP --> REPO
-    APP --> FILES
-    APP --> RES
-    REPO --> DB
-    RES --> DB
-    RES --> FILES
-```
+The implemented architecture above is the target architecture: every layer and every local component it names exists. What remains is Home showing real activity, which adds no new component.
 
 ## Clean Architecture Layers
 
@@ -106,7 +80,7 @@ flowchart TD
         KEYS["2 Keys - Answer Keys"]
         SCAN["3 Scan"]
         STUDENTS["4 Students"]
-        RESULTS["5 Results - placeholder"]
+        RESULTS["5 Results"]
     end
 
     HOME --> MORE["More list on Home"]
@@ -130,13 +104,19 @@ flowchart TD
     REVIEW --> SAVED["Result saved: scan next student"]
     PICK -- "Create answer key, only while the subject has none" --> KEYS
     PICK -- "Add students, only while the class has none" --> STUDENTS
+    RESULTS --> RFILTER["Filter sheets: subject, answer key, class, student"]
+    RESULTS --> RDETAIL["Result details"]
+    RDETAIL --> RIMAGE["Stored scan viewer"]
+    RDETAIL --> RDELETE["Delete permanently: confirmation"]
+    RESULTS -- "Scan an answer sheet, only while no result exists" --> SCAN
+    SETTINGS --> DEMO["Demo data: add or remove, development builds only"]
 ```
 
-The pickers, the camera, and the review are sheets and full-screen dialogs over the Scan screen, not routes. Planned and not built: Result list and Result Detail.
+The pickers, the camera, the review, the Result details, and the scan viewer are sheets and full-screen dialogs over their screen, not routes.
 
 ## Implemented SQLite Schema
 
-Implemented. This is the physical schema after migrations 1 to 6 (`PRAGMA user_version` = 6). All tables are `STRICT`. All `id` columns are device-generated UUIDs. There is no exam table: migration 4 converted `exams`, `exam_questions`, and the old per-question `answer_keys` into the tables below.
+Implemented. This is the physical schema after migrations 1 to 7 (`PRAGMA user_version` = 7). All tables are `STRICT`. All `id` columns are device-generated UUIDs. There is no exam table: migration 4 converted `exams`, `exam_questions`, and the old per-question `answer_keys` into the tables below.
 
 ```mermaid
 erDiagram
@@ -199,6 +179,11 @@ erDiagram
         text template_id
         text captured_at
         text created_at
+        text student_name
+        text student_number
+        text class_name
+        text subject_name
+        text answer_key_name
     }
     STUDENT_ANSWERS {
         text id PK
@@ -230,7 +215,9 @@ Notes:
 - `student_answers.detected_state` is `MARKED`, `BLANK`, `MULTIPLE`, or `UNCLEAR`. `detected_answer` is what the reader read, `final_answer` what was scored after the Teacher's review (null is a blank), and `correct_answer` the key's letter at the time of scoring. `is_correct` must agree with the last two.
 - `results.template_id` names the sheet that was read, for example `AC-10-V2`. `captured_at` is when the photo was taken, `created_at` when the Result was saved.
 - `scan_records.image_path` is the path of the Result's one image, relative to the app's documents folder, for example `scans/<result id>.png`.
-- `results`, `student_answers`, and `scan_records` are written by Scan. Nothing displays or deletes them yet.
+- `results.student_name`, `student_number`, `class_name`, `subject_name`, and `answer_key_name` are the names the Result was saved under. They are what a Result displays; the ID columns are what the filters and the delete rules use.
+- The Results list is read through the index on `(captured_at, created_at, id)`.
+- `results`, `student_answers`, and `scan_records` are written by Scan and read and deleted by Results. A saved row is never updated.
 - There is no teacher, account, role, or synchronization table, and no soft-delete or archive column.
 
 ## Roster Import
@@ -432,20 +419,54 @@ sequenceDiagram
 | Student | Results of the student |
 | Answer Key | Results scored with the key |
 
+## Results Browsing
+
+Implemented and verified on a physical Android phone.
+
+```mermaid
+sequenceDiagram
+    actor Teacher
+    participant UI as Results screen
+    participant UC as Results use cases
+    participant DB as Local SQLite database
+    participant Files as Result image store
+
+    Teacher->>UI: Open Results
+    UI->>UC: settleInterruptedDeletions()
+    UI->>UC: listResults, countResults, listFilterLinks
+    UC->>DB: One page newest first, the counts, the filter combinations
+    UI-->>Teacher: Rows: student, class, answer key, subject, score, date, attempt
+    Teacher->>UI: Type in search, or choose a filter
+    UI->>UC: listResults with the filter and the search
+    Teacher->>UI: Scroll to the end
+    UI->>UC: listResults after the last row
+    Teacher->>UI: Open a row
+    UI->>UC: getResult(id)
+    UC->>DB: Result, answers in question order, image path
+    UC->>Files: Is the image a scan image, and is it there?
+    UI-->>Teacher: Details, read-only; the scan, or "Stored scan image is unavailable"
+    Note over UI,Files: No image is loaded for the list. Nothing can be edited.
+```
+
 ## Permanent Deletion: Result
 
-Planned.
+Implemented and verified on a physical Android phone.
 
 ```mermaid
 flowchart TD
-    A["Teacher taps Delete Permanently"] --> B{"Confirmation dialog"}
+    A["Teacher taps Delete permanently"] --> B{"Confirmation: student, answer key, date, score, attempt"}
     B -- Cancel --> Z["No change"]
-    B -- "Delete Permanently" --> P["Read local image path"]
-    P --> C["Begin SQLite transaction"]
-    C --> E["Delete result: answers and scan record go with it"]
+    B -- Delete --> P["Read the result and its image path"]
+    P --> S{"Path is scans/name.png and the file exists?"}
+    S -- No --> C["Begin SQLite transaction"]
+    S -- Yes --> M{"Move the image to scans-deleting"}
+    M -- Fails --> X["FILE_ERROR: nothing changed"]
+    M -- Moved --> C
+    C --> E["Delete answers, scan record, result"]
     E --> F{"Transaction commits?"}
-    F -- No --> R["Roll back: record fully intact, show error"]
-    F -- Yes --> G["Delete local scan image file"]
-    G --> H["Record disappears from UI"]
-    H --> I["Nothing remains: no tombstone, no soft-deleted row"]
+    F -- No --> R["Roll back, move the image back: result fully intact, show error"]
+    F -- Yes --> G["Delete the staged image"]
+    G --> H["Result disappears from the list, notice shown"]
+    H --> I["Nothing remains: no tombstone, no soft-deleted row, no hidden copy"]
+    G -. "deletion of the file fails" .-> L["Leftover removed the next time Results is opened"]
 ```

@@ -4,7 +4,7 @@ Last reviewed: 2026-10-02
 
 This document describes the application's internal contracts: the boundaries between UI, application use cases, the sheet reader, the camera, and local storage. The application is offline-only, so every contract here is an in-process contract on the device. There are no network routes; see [api-routes.md](./api-routes.md).
 
-> **Status.** Implemented: every contract in this document except the deletion of a Result ([Planned: `deleteResult`](#planned-deleteresultresultid)) and viewing Results, which have no code yet.
+> **Status.** Implemented: every contract in this document.
 
 ## API Philosophy
 
@@ -27,7 +27,8 @@ This document describes the application's internal contracts: the boundaries bet
 | Students | `listStudents({ classId, search })`, `getStudent(id)`, `addStudent(input)`, `updateStudent(id, input)`, `deleteStudent(id)`, `pickRoster()`, `prepareRoster(fileName, text)`, `importStudents(inputs)` | Implemented and verified |
 | Answer Keys | `listAnswerKeys({ subjectId, search })`, `getAnswerKey(id)`, `createAnswerKey(input)`, `updateAnswerKey(id, input)`, `draftDuplicate(id)`, `duplicateAnswerKey(id, name?)`, `hasResults(id)`, `countResults(id)`, `deleteAnswerKey(id)` | Implemented and verified |
 | Scan | `listOptions(selection)`, `classIdsOfSubject(subjectId)`, `validateSelection(selection)`, `previousAttempts(selection)`, `readCapture(captureUri, selection)`, `discardCapture(captureUri)`, `discardDraft(draft)`, `saveResult(draft, review, { confirmDuplicate })`, `cleanUpScanFiles()`, `sharePrintableSheet(questionCount)`, `imageUri(path)` | Implemented and verified |
-| Results | list, view, delete | Planned |
+| Results | `listResults({ filter, search, after, limit })`, `countResults(filter, search)`, `listFilterLinks()`, `getResult(id)`, `deleteResult(id)`, `settleInterruptedDeletions()` | Implemented and verified |
+| Demo data (development builds) | `hasDemoData()`, `addDemoData()`, `removeDemoData()` | Implemented |
 
 All delete operations are permanent deletions as defined in the [Permanent Deletion Contract](#permanent-deletion-contract).
 
@@ -58,6 +59,7 @@ Implemented in `src/core/infrastructure/database/`.
 | 4 | `0004-answer-keys.ts` | Replaces the exam model: creates `answer_keys` (per subject) and `answer_key_items`, renames `exam_results` to `results`, rebuilds `student_answers` and `scan_records`, and drops `exams`, `exam_questions`, and the old `answer_keys` | Has run on a physical phone, with no legacy rows to convert |
 | 5 | `0005-question-count-unbounded.ts` | Rebuilds `answer_keys`, `answer_key_items`, and `student_answers` so that `question_count` and `question_number` only have to be 1 or more. Rows are copied unchanged | Has run on a physical phone |
 | 6 | `0006-scan-results.ts` | Rebuilds `results` (adds `class_id`, `template_id`, `captured_at`; the index on answer key and student is no longer unique) and `student_answers` (`detected_state`, `detected_answer`, `final_answer`, `correct_answer`, `is_correct`, `manually_corrected`, `confidence`) | Has run on a physical phone, with no result rows to convert |
+| 7 | `0007-result-snapshots.ts` | Rebuilds `results` to add `student_name`, `student_number`, `class_name`, `subject_name`, and `answer_key_name`, filled for existing rows from the records they point to. Adds `idx_results_captured_at`; `idx_results_created_at` is not recreated | Has run on a physical phone |
 
 Migration 4 converts legacy data instead of discarding it:
 
@@ -68,7 +70,9 @@ Migration 4 converts legacy data instead of discarding it:
 
 Migration 6 also converts rather than discards. An existing result gets the class its student is in, the template `UNKNOWN`, and its creation time as capture time. An existing answer gets the key's letter as `correct_answer`; the old states `SELECTED` and `UNCERTAIN` become `MARKED` and `UNCLEAR`. It rolls back when a saved answer has no letter in its answer key.
 
-The Node tests cover a fresh install, the upgrade from every earlier version, each rollback case, `PRAGMA foreign_key_check`, and `PRAGMA integrity_check`.
+Migration 7 rolls back, leaving version 6 and every row intact, when a result's student, class, answer key, or subject cannot be found: a result must not get an incomplete history.
+
+The Node tests cover a fresh install, the upgrade from every earlier version, each rollback case, `PRAGMA foreign_key_check`, `PRAGMA integrity_check`, and the query plans of the Results list and filters.
 
 ### Schema conventions
 
@@ -78,7 +82,7 @@ The Node tests cover a fresh install, the upgrade from every earlier version, ea
 - Booleans are `INTEGER` 0 or 1.
 - Subject, class, and answer key names are `COLLATE NOCASE`.
 - Answer letters are restricted to `A`, `B`, `C`, `D`. `question_count` and `question_number` are 1 or more; the database sets no upper limit.
-- `results`: `score` is from 0 to `total`, and `total` is 1 or more.
+- `results`: `score` is from 0 to `total`, and `total` is 1 or more. The five snapshot names are required and not empty.
 - `student_answers`: one row per result and question. `detected_state` is `MARKED`, `BLANK`, `MULTIPLE`, or `UNCLEAR`; `detected_answer` is set exactly when the state is `MARKED`; `is_correct` is 1 exactly when `final_answer` is set and equals `correct_answer`; `confidence` is null or from 0 to 1.
 - No table has a soft-delete, archive, tombstone, or synchronization column.
 
@@ -94,7 +98,7 @@ The Node tests cover a fresh install, the upgrade from every earlier version, ea
 | `idx_results_answer_key_id_student_id` (not unique since migration 6) | `results (answer_key_id, student_id)` |
 | `idx_results_student_id` | `results (student_id)` |
 | `idx_results_class_id` | `results (class_id)` |
-| `idx_results_created_at` | `results (created_at)` |
+| `idx_results_captured_at` | `results (captured_at, created_at, id)`: the order of the Results list |
 
 `students` also keeps the table constraint `UNIQUE (class_id, student_number)` from migration 1; the app-wide index makes it redundant.
 
@@ -421,11 +425,51 @@ Scoring, pure functions in `scoring.ts`:
 6. Moves the preview to its final place.
 7. Writes the result, every answer, and the scan record in one transaction. If it fails, the moved image is deleted again and the error is rethrown.
 
-A stored Result holds: the Answer Key, the Student, the Class of the scan, score and total, the template ID, when the photo was taken, when it was saved; and per question what was read, what was scored, the correct answer at that time, whether it was correct, whether the Teacher corrected it, and the reader's confidence.
+A stored Result holds: the Answer Key, the Student, the Class of the scan, the names of all of them and of the Subject as they were at the save, score and total, the template ID, when the photo was taken, when it was saved; and per question what was read, what was scored, the correct answer at that time, whether it was correct, whether the Teacher corrected it, and the reader's confidence.
 
 `ResultRepository`: `save(result)`, `listAttempts(answerKeyId, studentId)`, `countAttemptsByStudent(answerKeyId)`, `listImagePaths()`.
 
 Results are never rescored. Per-question points are one; weighted questions are not supported.
+
+## Results Contract
+
+Implemented and verified on a physical Android phone. Feature `features/results`. It reads and deletes what Scan saved; it has no operation that changes a Result.
+
+A summary is `{ id, score, total, capturedAt, createdAt, studentName, studentNumber, className, subjectName, answerKeyName, attempt: { number, count } }`. The names are the ones stored with the Result. A detail adds `answerKeyId`, `studentId`, `classId`, `templateId`, `imagePath`, and `answers`: per question `{ questionNumber, detectedState, detectedAnswer, finalAnswer, correctAnswer, isCorrect, manuallyCorrected, confidence }`.
+
+| Operation | Behavior | Errors |
+| --- | --- | --- |
+| `listResults({ filter, search, after, limit })` | One page (30 by default), newest first: capture time, then save time, then ID, all descending. Returns `{ items, next }`; `next` is the cursor of the following page, or null. One statement however many Results exist | `DATABASE_ERROR` |
+| `countResults(filter, search)` | `{ matching, total }`: Results within the filters and the search, and Results saved at all | `DATABASE_ERROR` |
+| `listFilterLinks()` | Every combination of Subject, Answer Key, Class of the scan, and Student that has a Result, with current names | `DATABASE_ERROR` |
+| `getResult(id)` | `{ result, imageUri }`, or null. `imageUri` is null when the stored image is missing, unreadable, or not a scan image; the Result is complete without it. Two statements | `DATABASE_ERROR` |
+| `deleteResult(id)` | Permanently deletes the Result, its answers, its scan record, and its image | `NOT_FOUND`, `FILE_ERROR`, `DATABASE_ERROR` |
+| `settleInterruptedDeletions()` | Finishes or undoes deletions that were interrupted. Never throws | None |
+
+Rules:
+
+- A filter is `{ subjectId, answerKeyId, classId, studentId }`, each an ID or null. The Subject is matched through the Answer Key, the Class is the Class of the scan.
+- `filterChoices(links, filter)` gives what each filter offers: every Subject, the Answer Keys of the chosen Subject, the Classes scanned with the chosen Subject and Answer Key, and the Students scanned in the chosen Class. `setFilter` sets one and clears those below it that no longer fit; `withoutIncompatible` does the same after a deletion.
+- Search is trimmed and matches any of the five stored names, ignoring letter case. What is typed is always literal text, passed as a parameter.
+- The attempt number is the Result's place, by capture time, among the Results of the same Student with the same Answer Key. It is counted over all Results, so it does not change with the filters or the search.
+- `tallyAnswers` counts correct, incorrect, blank, and manually corrected answers; correct, incorrect, and blank add up to the total. `percentage(score, total)` is a whole number.
+- Only the stored path `scans/<name>.png` is accepted as a scan image. No image bytes are ever read into the database or by the list.
+
+Ports: `ResultsRepository` (`list`, `count`, `listLinks`, `getById`, `delete`, `listImagePaths`) and `ResultImageStore` (`displayUri`, `stage`, `restore`, `discard`, `settleStaged`).
+
+## Demo Data Contract
+
+Implemented. A development aid in `features/demo-data`; the Settings screen shows it only in development builds.
+
+| Operation | Behavior |
+| --- | --- |
+| `hasDemoData()` | Whether any demo record is stored |
+| `addDemoData()` | Stores a fixed set in one transaction: 2 Subjects, 2 Classes, 3 assignments, 8 Students, 3 Answer Keys, and 16 Results with their answers and scan records. Returns false and adds nothing when demo data is already stored. Throws `DemoDataConflictError` (`DUPLICATE_NAME`), adding nothing, when a demo name or Student ID is already taken |
+| `removeDemoData()` | Physically deletes, in one transaction, every demo record and everything saved under one: Results of a demo Student, Answer Key, or Class, Students of a demo Class, and Answer Keys of a demo Subject. Returns the counts |
+
+- Demo IDs share a fixed prefix; names start with "Demo" and Student IDs with "DEMO-".
+- Demo Results have no image file, so they show "Stored scan image is unavailable".
+- Records not connected to demo data are never changed or deleted.
 
 ## Permanent Deletion Contract
 
@@ -444,29 +488,29 @@ Permanent physical deletion removes rows from the local SQLite database. It neve
 - The dependency check and the delete are one transaction.
 - The record disappears from the list only after commit.
 - The earlier open decision "block or cascade" is settled for every record above: **block**.
-- Every deletion is confirmed in a dialog that names the record, says it is permanent, and offers Cancel first. For a Student it shows the name and Student ID; for an Answer Key, the name, Subject, and question count.
+- Every deletion is confirmed in a dialog that names the record, says it is permanent, and offers Cancel first. For a Student it shows the name and Student ID; for an Answer Key, the name, Subject, and question count; for a Result, the Student, Student ID, Answer Key, capture date, score, and attempt.
 
-### Planned: `deleteResult(resultId)`
+### `deleteResult(id)`
 
-1. Verify the result exists. If not, return `NOT_FOUND` (callers may treat this as already deleted).
-2. Read the associated local image path from `scan_records.image_path`.
-3. Begin a local transaction.
-4. Delete the result. Its answer rows and scan record are removed with it.
-5. Commit the transaction.
-6. Delete the associated local image file, if present.
+Implemented and verified on a physical Android phone.
 
-A Result also removes its student answers, its scan record, and the local scan image.
+1. Read the Result with its image path from `scan_records.image_path`. If it does not exist, throw `ResultNotFoundError` (`NOT_FOUND`); the screen treats that as already deleted.
+2. If the path is a scan image and the file exists, move it to the app's private staging folder `scans-deleting/`. If the move fails, throw `ResultImageError` (`FILE_ERROR`); nothing has changed.
+3. In one transaction delete the `student_answers` rows, the `scan_records` row, and the `results` row, each by name.
+4. If the transaction fails, move the image back and rethrow; the Result is exactly as it was.
+5. Delete the staged image. A failure here is not an error: the Result stays deleted.
 
-A Student, an Answer Key, or a Class with Results stays blocked. The Teacher deletes the Results first; no use case removes them on a parent's behalf. Until `deleteResult` exists, such a record cannot be deleted at all.
+- Deletions requested through one set of use cases run one after another, so a double tap cannot move the same image twice.
+- A Result is never restored after its transaction has committed.
+- `settleInterruptedDeletions()` runs when Results is opened. A staged file whose Result still exists (the app stopped between steps 2 and 3, or step 4 could not move it back) is returned to the scans folder; every other staged file is deleted.
+- A path that is not exactly `scans/<name>.png` is never moved or deleted. Such a Result, and a Result whose image is already missing, is deleted from the database all the same.
+- Nothing outside the app's `scans/` and `scans-deleting/` folders is touched.
 
-**Local file cleanup**
-
-- Image paths are collected before the transaction, and files are deleted after it commits, never before, so a rolled-back delete does not lose its image.
-- If file deletion fails, the database delete still stands and `FILE_ERROR` is logged. The cleanup pass that Scan already runs (`cleanUpScanFiles`) removes image files that no scan record references.
+A Student, an Answer Key, or a Class with Results stays blocked. The Teacher deletes the Results first; no use case removes them on a parent's behalf. The blocking counts are read inside each deletion, so the record is released as soon as its last Result is gone.
 
 **Error handling**
 
-- A failure inside the transaction rolls everything back and returns `DATABASE_ERROR`. The record remains fully intact.
+- A failure inside the transaction rolls everything back and is raised as `DATABASE_ERROR`. The record remains fully intact, with its image.
 
 **No recovery**
 
@@ -477,9 +521,9 @@ A Student, an Answer Key, or a Class with Results stays blocked. The Teacher del
 | Code | Meaning | Status |
 | --- | --- | --- |
 | `VALIDATION_ERROR` | Input is missing or invalid. `InvalidNameError`, `InvalidStudentError`, and `InvalidAnswerKeyError` carry the list of problems, each with its field. `ScanSelectionError` carries which choice does not hold; `IncompleteReviewError` how many questions still wait | Implemented |
-| `DUPLICATE_NAME` | Another Subject or Class, or another Answer Key of the same Subject, has this name, ignoring letter case | Implemented |
+| `DUPLICATE_NAME` | Another Subject or Class, or another Answer Key of the same Subject, has this name, ignoring letter case. Also `DemoDataConflictError`: a demo name or Student ID is already taken | Implemented |
 | `DUPLICATE_STUDENT_ID` | Another Student has this Student ID, ignoring letter case | Implemented |
-| `NOT_FOUND` | The requested record does not exist (`RecordNotFoundError`, `ClassNotFoundError`, `SubjectNotFoundError`) | Implemented |
+| `NOT_FOUND` | The requested record does not exist (`RecordNotFoundError`, `ClassNotFoundError`, `SubjectNotFoundError`, `ResultNotFoundError`) | Implemented |
 | `IN_USE` | Deletion is blocked because other records depend on this one (`SubjectInUseError`, `ClassInUseError`, `StudentInUseError`, `AnswerKeyInUseError`, each with a count; a Class carries its Student and Result counts) | Implemented |
 | `ANSWER_KEY_LOCKED` | The Answer Key has saved Results, so its Subject, question count, and answers cannot change (`AnswerKeyLockedError`, with the count) | Implemented |
 | `ROSTER_FILE_ERROR` | The picked file cannot be used as a roster (`RosterFileError`, with the reason) | Implemented |
@@ -487,7 +531,7 @@ A Student, an Answer Key, or a Class with Results stays blocked. The Teacher del
 | `CAPTURE_REJECTED` | The photo cannot be read (`CaptureRejectedError`, with the problem and, for a sheet of another question count, both counts). No answers and no score were produced | Implemented |
 | `ANSWER_KEY_CHANGED` | The Answer Key was edited after the sheet was read (`AnswerKeyChangedError`). Nothing was saved; the sheet is scanned again | Implemented |
 | `DUPLICATE_ATTEMPT` | The Student already has a Result with this Answer Key and a second attempt was not confirmed (`DuplicateAttemptError`, with the earlier attempts) | Implemented |
-| `FILE_ERROR` | A scan image could not be read, written, or moved (`ScanImageError`), or the answer sheet could not be shared (`SheetShareError`, with the reason) | Implemented |
+| `FILE_ERROR` | A scan image could not be read, written, or moved (`ScanImageError`), the answer sheet could not be shared (`SheetShareError`, with the reason), or a Result's image could not be set aside for deletion (`ResultImageError`) | Implemented |
 
 The codes `CAMERA_ERROR`, `OMR_FAILED`, `OMR_UNCERTAIN`, and `PERMISSION_ERROR` that earlier versions of this document planned were not built. A refused photo is `CAPTURE_REJECTED`; questions needing review are a state of the review, not an error; and a camera failure or a denied permission is handled inside the camera dialog without a typed error.
 
@@ -495,6 +539,6 @@ Errors are classes with a `code` field. Callers branch on the class or the code,
 
 ## Versioning
 
-- **Database schema:** versioned migrations applied on app start; see [Database Contract](#database-contract). The current version is 6.
+- **Database schema:** versioned migrations applied on app start; see [Database Contract](#database-contract). The current version is 7.
 - **Answer sheet template:** the template ID carries the question count and the layout version, `AC-<count>-V2`, and is stored with every Result. The reader reads the current layout version only: after a change of geometry, sheets printed earlier are refused and must be printed again. Reading several layout versions side by side is not built.
 - **This document:** updated only during an authorized documentation pass; `docs/` is otherwise frozen.

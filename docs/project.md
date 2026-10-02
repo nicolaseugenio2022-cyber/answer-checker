@@ -10,7 +10,7 @@ Answer Checker is a mobile application that checks shaded multiple-choice answer
 
 The app is **offline-only**. Everything runs on the phone and is stored in a local SQLite database on the Teacher's device. There is no backend, no cloud database, no synchronization, and no account.
 
-Today the Teacher can manage Subjects, Classes, and Students, choose which Subjects are taught to each Class, import a class roster from a CSV file, create Answer Keys, print an answer sheet for a key, and scan sheets: photograph, review, score, and save. Viewing and deleting saved Results is not built.
+Today the Teacher can manage Subjects, Classes, and Students, choose which Subjects are taught to each Class, import a class roster from a CSV file, create Answer Keys, print an answer sheet for a key, scan sheets (photograph, review, score, and save), and browse the saved Results: search, filter, open one to see every answer and the stored scan, and delete one permanently.
 
 ## Problem Statement
 
@@ -58,7 +58,8 @@ Accepted on a physical Android phone by the project owner, stage by stage, on 20
 - Confirmation dialog before every deletion
 - Themed in-app notice after each successful action
 - Settings screen with a working light/dark theme switch and a note that data is stored only on the device
-- On-device SQLite database with versioned migrations; migrations 1 to 6 have run on the phone
+- **Results**: list newest first, read a page at a time; one search field over Student name, Student ID, Answer Key, Subject, and Class; filters by Subject, Answer Key, Class, and Student; attempt labels; details with score, counts, every question, and the stored scan image full screen; permanent deletion of a Result with its answers, scan record, and image
+- On-device SQLite database with versioned migrations; migrations 1 to 7 have run on the phone
 - Web preview that shows an honest "Only on the phone" state instead of pretending to store data
 
 ### Implemented, not verified on a device
@@ -68,18 +69,18 @@ Code exists and passes the automated tests. These paths were not reported separa
 - Deletion of a Student, an Answer Key, or a Class **blocked by saved Results**, with the count. Reachable on the phone now that scans are saved
 - An Answer Key with Results being **locked**: only its name can change
 - The sheet reader on **dense sheets** (41 to 100 questions) and under difficult light, angles, and pencils. It was accepted on the phone in ordinary use; its thresholds are not calibrated
-- Screen-reader behavior of the Scan pickers: focus moving into the sheet and back to the row
+- Screen-reader behavior of the Scan and Results pickers: focus moving into the sheet and back
+- The recovery paths of Result deletion: a failed transaction putting the image back, and leftover staged files being settled when Results is opened. They are covered by tests with a fake file system
+- Development demo data (Settings, development builds only): no separate acceptance report
 - The conversion of legacy exam rows by migration 4. No installed database had such rows, so the phone ran the migration with nothing to convert
 - Subject-to-Class assignments (Classes → Manage subjects) and the row summaries: in use on the phone since the Students stage, with no separate acceptance report
 
 ### Planned
 
-- View previous Results
-- Permanently delete Results, including answer rows, scan metadata, and the scan image
 - Home showing real activity
 - Calibration of the reader's thresholds on real printed sheets
 
-A placeholder screen exists for Results. It says what it will do and that it is not built; it has no controls or data. Results are already saved by Scan and will appear there.
+No placeholder screen remains: all five tabs are working features.
 
 ### Optional/Future
 
@@ -122,11 +123,11 @@ Rules are in [source-of-truth.md](./source-of-truth.md#student-truth) and [sourc
 | UI components | React Native Reusables (`Button`, `Text`, `Icon`, `Badge`, `Input`), native `Item` list rows modeled on shadcn Item, dialogs and full-screen forms on React Native `Modal`, `@rn-primitives/portal`, `@rn-primitives/slot` | Implemented |
 | Styling | NativeWind 4.2, Tailwind CSS 3.4, `tailwindcss-animate`, `class-variance-authority`, `clsx`, `tailwind-merge` | Implemented |
 | Animation | `react-native-reanimated` 4 | Implemented |
-| Local SQLite database | `expo-sqlite` 57. Required; the only application database | Implemented (schema version 6) |
+| Local SQLite database | `expo-sqlite` 57. Required; the only application database | Implemented (schema version 7) |
 | Record IDs | `expo-crypto` 57 (`randomUUID`) | Implemented |
 | Roster files | `expo-document-picker` 57 to choose a CSV file; `expo-file-system` 57 to read and delete its temporary copy; the CSV reader is project code, with no parser dependency | Implemented |
 | Linting | ESLint 9 with `eslint-config-expo` | Implemented |
-| Automated tests | Node's built-in test runner with `node:sqlite`; no test framework installed | Implemented (392 tests: database, use cases, CSV, file lifecycles, sheet template and PDF, sheet reader, scan) |
+| Automated tests | Node's built-in test runner with `node:sqlite`; no test framework installed | Implemented (457 tests: database, use cases, CSV, file lifecycles, sheet template and PDF, sheet reader, scan, results, demo data) |
 | Camera | `expo-camera` 57 | Implemented |
 | OMR | The project's own TypeScript image processing, on-device. No OpenCV | Implemented |
 | Scan images | `expo-image-manipulator` 57 to resize the photo; `fflate` 0.8 for the project's own PNG reader and writer; `expo-file-system` 57 | Implemented |
@@ -222,17 +223,20 @@ src/
     students/                           domain, application, infrastructure, presentation
     answer-keys/                        domain, application, infrastructure, presentation
     scan/                               domain, application, infrastructure, presentation
+    results/                            domain, application, infrastructure, presentation
+    demo-data/                          domain, application, infrastructure, presentation (development aid)
     dashboard/, settings/               presentation
-    results/                            presentation (placeholder)
   global.css                            Tailwind layers and theme tokens
 scripts/generate-answer-sheet.mjs       Writes an answer sheet PDF on the computer, for inspection
 tests/database/                         Node tests for schema, migrations, repositories, use cases, CSV, files
 tests/scan/                             Node tests for the sheet template and PDF, the reader, and the scan use cases
+tests/results/                          Node tests for migration 7, the list, filters, details, image store, and deletion
+tests/demo-data/                        Node tests for adding and removing the demo data
 ```
 
 ## Main User Flow
 
-Implemented up to "Save to SQLite". "View result" is Planned: after a save the app shows the score and offers the next Student.
+Implemented. After a save the app shows the score and offers the next Student; the saved Result is opened from the Results tab.
 
 ```text
 Teacher opens app
@@ -248,7 +252,7 @@ Teacher opens app
   -> Confirm
   -> Calculate score
   -> Save to SQLite
-  -> View result
+  -> Results tab: search, filter, open, or permanently delete the Result
 ```
 
 ## Offline-Only Behavior
@@ -319,9 +323,10 @@ The reader reads only the A–D bubbles and the sheet's own markers. It does not
 
 - The only database is the local SQLite database (`expo-sqlite`), stored on the Teacher's device in the app's private storage.
 - The file is `answer-checker.db`. It is opened at app start with WAL journaling and foreign keys enabled and verified, then migrated.
-- The schema version is kept in `PRAGMA user_version`. The latest version is **6**.
+- The schema version is kept in `PRAGMA user_version`. The latest version is **7**.
 - Tables (all `STRICT`): `subjects`, `classes`, `class_subjects`, `students`, `answer_keys`, `answer_key_items`, `results`, `student_answers`, `scan_records`.
-- The app reads and writes `subjects`, `classes`, `class_subjects`, `students`, `answer_keys`, and `answer_key_items`. Scan writes `results`, `student_answers`, and `scan_records`; nothing shows or deletes those rows yet. They are counted to block deletions, lock used Answer Keys, and label Students already scanned.
+- The app reads and writes `subjects`, `classes`, `class_subjects`, `students`, `answer_keys`, and `answer_key_items`. Scan writes `results`, `student_answers`, and `scan_records`; Results reads them and deletes them. A saved Result is never updated. Results are also counted to block deletions, lock used Answer Keys, and label Students already scanned.
+- A Result stores the names it was saved under (Student, Student ID, Class, Subject, Answer Key), so it keeps showing them after a rename or a move.
 - There is no exam, teacher, account, role, or synchronization table.
 - IDs are UUIDs generated on the device. Timestamps are UTC ISO-8601 strings.
 - Each installation has its own independent database.
@@ -337,7 +342,7 @@ The schema is drawn in [diagrams.md](./diagrams.md#implemented-sqlite-schema) an
 
 "Delete Permanently" is permanent physical deletion: the record is removed from SQLite. It is not a soft delete and not an archive, and it leaves no tombstone behind.
 
-Implemented for Subjects, Classes, assignments, Students, and Answer Keys. The confirmation shown today:
+Implemented for Subjects, Classes, assignments, Students, Answer Keys, and Results. The confirmation shown for an Answer Key:
 
 ```text
 Delete “Midterm examination”?
@@ -359,7 +364,7 @@ When other records depend on the one being deleted, the deletion is blocked and 
 | Student | Saved Results belong to it |
 | Answer Key | Saved Results were scored with it |
 
-Planned: deleting a result also removes its student answers, scan metadata, and local scan image. The rules are in [api.md](./api.md#permanent-deletion-contract). Because there is no backup, a deleted record cannot be recovered.
+Deleting a Result also removes its answers, its scan record, and its stored scan image, and is confirmed with the Student, Student ID, Answer Key, capture date, score, and attempt. The image is moved aside first, the rows are deleted in one transaction, and only then is the image destroyed; if the transaction fails the image is put back. Deleting the last Result of a Student, Answer Key, or Class releases that record for deletion. The rules are in [api.md](./api.md#permanent-deletion-contract). Because there is no backup, a deleted record cannot be recovered.
 
 ## Excluded: Cloud and Synchronization
 
@@ -371,7 +376,7 @@ They may be reconsidered only after an explicit requirement change, recorded as 
 
 - Student information is stored on the Teacher's device and nowhere else.
 - Scanned answer sheets may contain identifiable information.
-- One image of the flattened sheet is kept with each saved Result, until that Result is deleted. The original photo is not kept.
+- One image of the flattened sheet is kept with each saved Result, until that Result is deleted. The original photo is not kept. The image can be viewed inside the app only; it is not shared or copied to the gallery.
 - Permanent deletion removes associated stored images.
 - The local SQLite database is not encrypted by the app. It is protected by the operating system's app sandbox and the device lock.
 - There is no authentication: anyone who can open the phone and the app can see the data.
@@ -412,13 +417,14 @@ Inspected 2026-10-02.
 | Navigation | Implemented and verified. Bottom tabs: `/`, `/keys`, `/scan`, `/students`, `/results`. Secondary screens opened from Home → More, with Back and Home still selected: `/classes`, `/subjects`, `/settings`. No drawer or sidebar, and no `/exams` route |
 | Design system | Implemented and verified. Light and dark tokens, selective glass surfaces. Live blur is off on Android |
 | Home dashboard | Implemented and verified. Shortcuts, static empty states, and the More list; it reads no data yet |
-| SQLite database | Implemented. `answer-checker.db`, WAL, foreign keys on, `STRICT` tables, `PRAGMA user_version` = 6 |
+| SQLite database | Implemented. `answer-checker.db`, WAL, foreign keys on, `STRICT` tables, `PRAGMA user_version` = 7 |
 | Migration 1 (base schema) | Verified on an Android 14 emulator and on a physical phone |
 | Migration 2 (`class_subjects`) | Has run on a physical phone |
 | Migration 3 (Student ID unique in the app) | Has run on a physical phone |
 | Migration 4 (answer keys replace exams) | Has run on a physical phone, with no legacy rows to convert. The conversion and its rollback are covered by the Node tests |
 | Migration 5 (no upper limit on questions) | Has run on a physical phone |
 | Migration 6 (results as a scan saves them) | Has run on a physical phone |
+| Migration 7 (the names a Result was saved under; list index) | Has run on a physical phone |
 | Subjects, Classes | Implemented and verified: list, add, rename, permanent delete |
 | Subject-to-Class assignments | Implemented and in use on the phone; no separate acceptance report |
 | Students | Implemented and verified: list, search, filter, add, edit, move, permanent delete |
@@ -429,23 +435,24 @@ Inspected 2026-10-02.
 | Scan | Implemented and verified: selection in searchable bottom sheets, camera, on-device reading, review, scoring, saving, second attempts, scan-file cleanup |
 | In-app notice | Implemented and verified |
 | OMR thresholds | Initial values. Not calibrated on a range of printed sheets, pencils, light, and phones |
-| Results | Planned. Placeholder screen. Results are saved by Scan but cannot be viewed or deleted |
-| Permanent deletion | Implemented for Subjects, Classes, assignments, Students, and Answer Keys. Planned for Results |
-| Repositories and use cases | Subjects, Classes, Subject-to-Class assignments, Students, Answer Keys, Scan (results) |
+| Results | Implemented and verified: list, search, filters, attempts, details, stored-scan viewer, permanent deletion with its answers, scan record, and image |
+| Permanent deletion | Implemented for Subjects, Classes, assignments, Students, Answer Keys, and Results |
+| Demo data | Implemented. Settings, development builds only: adds and removes a fixed set of made-up records |
+| Repositories and use cases | Subjects, Classes, Subject-to-Class assignments, Students, Answer Keys, Scan, Results, demo data |
 | Backend | None. No server code, no network requests |
 | Supabase, MongoDB | Not installed. Excluded from the architecture |
 | Authentication, synchronization | None. Excluded from the architecture |
-| Automated tests | 392 tests in `tests/database/` and `tests/scan/`, run by `npm run test:db`, all passing. No UI tests |
+| Automated tests | 457 tests in `tests/database/`, `tests/scan/`, `tests/results/`, and `tests/demo-data/`, run by `npm run test:db`, all passing. No UI tests |
 | App icons and splash | Still the Expo template artwork |
 | Native identifiers | `android.package` and `ios.bundleIdentifier` not set |
 
-Verification performed on the review date: `npm run test:db` (392 pass), `tsc --noEmit`, ESLint, `expo-doctor` (21 of 21), React Native Reusables `doctor`, and JavaScript bundle exports for web and Android all pass.
+Verification performed on the review date: `npm run test:db` (457 pass), `tsc --noEmit`, ESLint, `expo-doctor` (21 of 21), React Native Reusables `doctor`, and JavaScript bundle exports for web and Android all pass.
 
-The Node tests prove the SQL, the migrations and every upgrade path, the repositories, the use cases, the CSV reader, the roster-file and scan-file lifecycles (with a fake file system), the sheet template and PDF for every question count, and the sheet reader on generated pictures of sheets. They do not prove `expo-sqlite`, the file picker, the camera, the reader on photos of printed sheets, or the UI on a device; the acceptance passes on the phone do that for the features marked verified.
+The Node tests prove the SQL, the migrations and every upgrade path, the repositories, the use cases, the CSV reader, the roster-file and scan-file lifecycles and the image handling of Result deletion (with a fake file system), the sheet template and PDF for every question count, and the sheet reader on generated pictures of sheets. They do not prove `expo-sqlite`, the file picker, the camera, the reader on photos of printed sheets, or the UI on a device; the acceptance passes on the phone do that for the features marked verified.
 
 "Verified" in this document rests on the project owner's acceptance on a physical Android phone. TalkBack and raised font sizes have not been systematically checked.
 
-Web is a preview of the phone app only. In a browser the app is held to a 480-point column; there is no desktop or tablet layout. The database provider is a pass-through there, and the Subjects, Classes, Students, Answer Keys, and Scan screens show "Only on the phone" with no Add or camera action.
+Web is a preview of the phone app only. In a browser the app is held to a 480-point column; there is no desktop or tablet layout. The database provider is a pass-through there, and the Subjects, Classes, Students, Answer Keys, Scan, and Results screens show "Only on the phone" with no Add or camera action.
 
 ## Known Mismatches
 
@@ -454,11 +461,15 @@ The exam-versus-answer-key mismatches recorded earlier are resolved: migration 4
 | Open point | Detail |
 | --- | --- |
 | Back from Subjects | Opened from the "Open Subjects" button on Answer Keys, Back returns to Answer Keys rather than Home |
-| Results cannot be removed | Scan saves Results, and nothing deletes them yet. A Student, Answer Key, or Class with Results therefore cannot be deleted until Results deletion is built |
+| Names of older Results | A Result saved before migration 7 shows the names its records had at the upgrade, not at the scan |
+| Scan viewer | The enlarged view is a fixed size with scrolling; there is no pinch zoom |
+| Results search and letter case | Letters outside ASCII are matched as typed, in lower case, and in upper case. A mixed-case variant such as "pEÑa" may not match |
+| Results filters | Only records that have a Result are offered |
+| Home | "Recent results" still shows fixed text, not real activity |
 | Long Answer Keys | A key may have up to 200 questions, but one sheet holds 100. A longer key cannot be scanned |
 | Reader calibration | The reader's thresholds are initial values; see OMR Overview |
 | Create answer key from Scan | The action in the empty Answer Key picker opens the Answer Keys screen, not the form itself |
-| Large lists | The Students and Answer Keys lists are plain scrolling lists, not virtualized. Several hundred rows may open slowly |
+| Large lists | The Students and Answer Keys lists are plain scrolling lists, not virtualized (the Results list is). Several hundred rows may open slowly |
 | CSV encoding | A roster is read as UTF-8. A file saved in another encoding shows wrong characters for letters such as ñ |
 | File types | The picker offers files reported as CSV or plain text. A provider that reports another type shows the file greyed out |
 
@@ -471,7 +482,7 @@ The exam-versus-answer-key mismatches recorded earlier are resolved: migration 4
 | 3 | Students and offline roster import | Implemented and verified |
 | 4 | Answer Keys and the schema and terminology migration | Implemented and verified |
 | 5 | Scan: generated answer sheet, camera, on-device reading, review, scoring, saving | Implemented and verified |
-| 6 | Results and permanent result and image deletion | Planned |
+| 6 | Results and permanent result and image deletion | Implemented and verified |
 | 7 | Home integration with real data | Planned |
 | 8 | Settings, accessibility, and final device testing | Planned |
 

@@ -4,7 +4,7 @@ Last reviewed: 2026-10-02
 
 This document records the authoritative product and architecture decisions for the Offline Answer Sheet Scanner. Developers and AI coding agents must read it before changing the project.
 
-> **Implementation status at time of writing:** the app shell, the local SQLite database (schema version 6), Subjects, Classes, Subject-to-Class assignments, Students with CSV roster import, Answer Keys, and Scan (printable answer sheet, camera capture, on-device reading, review, scoring, and saving a Result) exist. Viewing and deleting Results do not. Unless a row or sentence says "Implemented", everything below is a **target decision**, not a description of working software. See [project.md](./project.md#current-implementation-status).
+> **Implementation status at time of writing:** the app shell, the local SQLite database (schema version 7), Subjects, Classes, Subject-to-Class assignments, Students with CSV roster import, Answer Keys, Scan (printable answer sheet, camera capture, on-device reading, review, scoring, and saving a Result), and Results (list, search, filters, details, stored-scan viewing, permanent deletion) exist. Home does not show real activity yet. Unless a row or sentence says "Implemented", everything below is a **target decision**, not a description of working software. See [project.md](./project.md#current-implementation-status).
 
 ## Status Vocabulary
 
@@ -48,7 +48,7 @@ Do not introduce RBAC. With a single role there is nothing to authorize between.
 | Mobile | React Native, Expo, TypeScript | Implemented |
 | Navigation | Expo Router, routes under `src/app` | Implemented |
 | UI | React Native Reusables, NativeWind, shadcn New York style, pink glass theme | Implemented |
-| Persistence | SQLite via `expo-sqlite`. Required; the only application database | Implemented (schema version 6) |
+| Persistence | SQLite via `expo-sqlite`. Required; the only application database | Implemented (schema version 7) |
 | Record IDs | UUIDs from `expo-crypto` (`randomUUID`) | Implemented |
 | Roster files | `expo-document-picker` to choose a CSV file, `expo-file-system` to read and delete its temporary copy. The CSV reader is the project's own code | Implemented |
 | Camera | `expo-camera`, on-device. Permission is asked only when the Teacher opens the camera | Implemented |
@@ -75,7 +75,7 @@ This is not a Next.js application and not a browser-first React application. The
 - Glass is used selectively: the bottom tab bar, the Home header control, quick actions, the Activity panel, list-state panels, and the in-app notice. Glass means the `glass` token at partial opacity plus a thin edge. Do not put glass inside glass, and do not apply it to every surface.
 - Only the tab bar uses a live blur (`expo-blur`), and only on iOS and the web preview. Android uses a nearly opaque surface instead, for performance and because the Android blur path is unverified on a device. Content must stay readable with blur off.
 - The product is designed for phones, Android first. There is no desktop or tablet layout, no sidebar, and no drawer. Web exists only to preview the phone UI and is held to a phone-width column. Do not design hover-dependent or mouse-specific behavior. When web and a physical Android device differ, the device is the authority.
-- The Home dashboard shows real data or a truthful empty state with a next action. Never fake statistics, records, or activity.
+- The Home dashboard shows real data or a truthful empty state with a next action. Never fake statistics, records, or activity. The one exception is the demo data a developer adds deliberately from Settings in a development build: made-up records whose names start with "Demo", removable in one action, and never offered in a release build.
 - Icons come from one family, Lucide (`lucide-react-native`), imported per icon (`lucide-react-native/icons/<name>`) to keep the bundle small. No emoji icons.
 - A screen for an unbuilt feature must say it is not built and must not show controls, sample records, or statistics that imply it works.
 - Feedback after an action is one themed in-app notice (a glass card with a pink check for success, a destructive border and alert icon for an error) that floats just above the tab bar and closes itself. Native toasts and alert popups are not used for this. Validation messages stay inside the form, and a blocked deletion is explained inside its dialog.
@@ -279,7 +279,47 @@ Rules:
 - The save also checks that the Answer Key still has the answers the sheet was reviewed against. If it changed, nothing is saved and the sheet is scanned again.
 - A Student who already has a Result with the same Answer Key gets a second, separate Result only after the Teacher confirms. An earlier Result is never replaced or overwritten.
 - After a save, the Subject, Answer Key, and Class stay selected for the next Student. Students already scanned with the chosen Answer Key are labelled.
-- A Result records the Class the Student was in at the time of the scan, the template of the sheet, when the photo was taken, and, for every question, the correct answer at the time of scoring. Later changes to the Student or the Answer Key name do not alter it.
+- A Result records the Class the Student was in at the time of the scan, the template of the sheet, when the photo was taken, and, for every question, the correct answer at the time of scoring. It also keeps the names it was saved under. See [Result Truth](#result-truth).
+
+## Result Truth
+
+Binding product decision. Implemented and verified on a physical Android phone (accepted by the project owner on 2026-10-02).
+
+### A saved Result is a historical record
+
+After the Teacher confirms a scan, nothing in the Result can be changed: not the score, not an answer, not the Student or the Answer Key it belongs to, not the Class of the scan, not the capture time, not the correct-answer snapshots, not what the reader detected or what the Teacher corrected. The app has no way to edit a Result and one must not be added.
+
+- If a wrong Result was saved, the Teacher permanently deletes it and scans the sheet again.
+- A Result is never rescored when its Answer Key changes.
+
+### Historical names
+
+A Result keeps the names it was saved under: the Student's name and Student ID, the name of the Class of the scan, the Subject's name, and the Answer Key's name. They are written with the Result in one transaction (migration 7).
+
+- The list, the details, and the search show and use these names. Renaming a Student, Class, Subject, or Answer Key later, or moving the Student to another Class, does not change a saved Result.
+- The filters use the linked records and name them as they are called now.
+- Results saved before migration 7 were given the names their linked records had at the upgrade; nothing older was stored.
+
+### Browsing
+
+- Results are listed newest first: by capture time, then save time, then ID. The list is read a page at a time.
+- One search field looks, ignoring letter case, at the Student name, Student ID, Answer Key, Subject, and Class. It searches within the active filters. It never looks at image contents or handwriting.
+- Four filters: Subject, Answer Key, Class (the Class of the scan), and Student. Each offers only records that have a Result. A Subject limits the Answer Keys and Classes; a Class limits the Students; a filter that no longer fits is cleared automatically. The filters belong to the Results screen and are independent of the Scan selection.
+- No pass or fail is shown anywhere: no passing mark is defined. A row shows the score as correct over total and a percentage.
+
+### Attempts
+
+Several Results for one Student with one Answer Key are valid. Each is listed separately and never merged or overwritten. An attempt number is assigned by capture time and shown only when there is more than one. No attempt is treated as the authoritative one. Deleting one attempt leaves the others.
+
+### Details and the stored scan
+
+- The details show the historical names, the capture time, the attempt, the score, the counts of correct, incorrect, blank, and manually corrected answers, and every question with the final answer, the correct answer, what the reader detected when that differs, and the reader's confidence as secondary information. Correct and incorrect are always shown with text and an icon, never by color alone.
+- The stored scan image can be viewed full screen, uncropped, on a dark background, and enlarged. It is not shared, not copied to the gallery, and its file location is never shown.
+- When the image is missing or unreadable, the Result stays fully viewable and says "Stored scan image is unavailable". No image is invented or regenerated.
+
+### Permanent deletion of a Result
+
+Deleting a Result physically removes the Result, its answer rows, its scan record, and its private scan image. See [Deletion Truth](#deletion-truth).
 
 ## Answer Sheet Truth
 
@@ -353,9 +393,9 @@ Layers that exist today:
 | Location | Layers present |
 | --- | --- |
 | `src/core` | `domain`, `application`, `infrastructure/database`, `presentation` |
-| `features/subjects`, `classes`, `students`, `answer-keys`, `scan` | `domain`, `application`, `infrastructure`, `presentation` |
+| `features/subjects`, `classes`, `students`, `answer-keys`, `scan`, `results`, `demo-data` | `domain`, `application`, `infrastructure`, `presentation` |
 | `features/class-subjects` | `application`, `infrastructure`, `presentation` (it has no entity of its own) |
-| `features/dashboard`, `results`, `settings` | `presentation` only |
+| `features/dashboard`, `settings` | `presentation` only |
 
 ## Offline Truth
 
@@ -407,8 +447,8 @@ Implemented and verified on a physical Android phone.
 - Record IDs are UUIDs generated on the device, not auto-increment integers.
 - Timestamps are UTC ISO-8601 strings as `Date.prototype.toISOString()` produces them.
 - Tables are `STRICT`. Foreign-key enforcement is turned on, and verified, on every connection. Journaling is WAL.
-- Schema changes are made only through ordered, versioned migrations in `src/core/infrastructure/database/migrations.ts`, one file per migration. The schema version is stored in `PRAGMA user_version`. The latest version is **6**.
-- A migration that has run on a device is frozen. Migrations 1 to 6 have run on a physical Android phone; never edit them. Change the schema by appending migration 7.
+- Schema changes are made only through ordered, versioned migrations in `src/core/infrastructure/database/migrations.ts`, one file per migration. The schema version is stored in `PRAGMA user_version`. The latest version is **7**.
+- A migration that has run on a device is frozen. Migrations 1 to 7 have run on a physical Android phone; never edit them. Change the schema by appending migration 8.
 - The schema is the evidence of what is implemented. The implemented schema is drawn in [diagrams.md](./diagrams.md#implemented-sqlite-schema).
 - Do not add role, permission, account, teacher, or synchronization tables.
 
@@ -421,11 +461,19 @@ Permanent physical deletion is mandatory.
 - Deletion requires explicit confirmation that names the record and states the action cannot be undone.
 - A shared parent record must not silently destroy unrelated records. A Class with Students or with Results scanned under it, a Subject with Answer Keys, and a Student or Answer Key with Results are blocked from deletion (`ON DELETE RESTRICT`) until those records are removed deliberately.
 - Dependent rows that cannot exist on their own are removed with their parent: a Result's answer rows and scan metadata, an Answer Key's items, and the Subject-to-Class assignment rows of a deleted Subject or Class.
-- Deleting a Result removes its answer rows and scan metadata. The local image paths are collected before the database deletion is committed, and the files are deleted after the commit.
+- Deleting a Result removes its answer rows, its scan record, and its scan image. A database transaction cannot undo a file deletion, so the image is never deleted first:
+  1. The image is moved to a private deletion-staging folder inside the app. If that fails, nothing has changed.
+  2. The answer rows, the scan record, and the Result are deleted in one transaction. If that fails, the image is moved back and the Result is exactly as it was.
+  3. The staged image is deleted. If that fails, the Result stays deleted, and the leftover file is removed the next time Results is opened.
+- A Result is never restored after its transaction has committed.
+- Whenever Results is opened, staged files are settled: one whose Result still exists is moved back, every other one is deleted.
+- Only a file directly inside the app's own scans folder is ever shown, moved, or deleted from Results. A stored path that is anything else is never touched. A Result whose image is missing, or whose stored path is not a scan image, can still be deleted.
+- The confirmation shows the Student's name and Student ID, the Answer Key, the capture date, the score, and the attempt when there is more than one, and warns: "This permanently deletes this result, its question answers, and its stored scan image. This cannot be undone."
+- Deleting the last Result that depends on a Student, an Answer Key, or a Class releases that record for deletion. The counts are read at the moment of each deletion, never cached.
 - Deletion leaves nothing behind: no tombstone, no soft-deleted row, and no synchronization instruction.
 - Because there is no backup, a permanent deletion cannot be recovered.
 
-Implemented today: permanent deletion of Subjects, Classes, assignments, Students, and Answer Keys. Result deletion is Planned. Until it exists, a Student, Answer Key, or Class that has Results cannot be deleted.
+Implemented today: permanent deletion of Subjects, Classes, assignments, Students, Answer Keys, and Results.
 
 ## Excluded: Cloud and Synchronization
 
@@ -494,3 +542,5 @@ If the implementation disagrees with the architecture documentation, **report th
 16. Do not edit `docs/` while it is frozen.
 17. Clearly distinguish Implemented, Planned, and Optional/Future features.
 18. Do not reintroduce a fixed-size answer sheet, a bundled sheet file, or a fixed limit of 40 questions.
+19. Do not add any way to edit, rescore, or overwrite a saved Result.
+20. Do not show the demo data controls outside development builds.
