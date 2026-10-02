@@ -26,7 +26,7 @@ function describeProblem(problem: AnswerKeyProblem): string {
     case 'subjectId':
       return 'Choose a subject.';
     case 'questionCount':
-      return `Use ${problem.min} to ${problem.max} questions.`;
+      return `Enter a number of questions from ${problem.min} to ${problem.max}.`;
     case 'answers':
       return problem.problem === 'WRONG_COUNT'
         ? 'Every question needs an answer.'

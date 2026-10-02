@@ -10,6 +10,7 @@
     "clsx": "^2.1.1",
     "expo": "~57.0.26",
     "expo-blur": "~57.0.3",
+    "expo-camera": "~57.0.6",
     "expo-constants": "~57.0.20",
     "expo-crypto": "~57.0.3",
     "expo-device": "~57.0.2",
@@ -18,14 +19,17 @@
     "expo-font": "~57.0.4",
     "expo-glass-effect": "~57.0.4",
     "expo-image": "~57.0.5",
+    "expo-image-manipulator": "~57.0.20",
     "expo-linking": "~57.0.11",
     "expo-router": "~57.0.24",
+    "expo-sharing": "~57.0.22",
     "expo-splash-screen": "~57.0.9",
     "expo-sqlite": "~57.0.3",
     "expo-status-bar": "~57.0.1",
     "expo-symbols": "~57.0.3",
     "expo-system-ui": "~57.0.4",
     "expo-web-browser": "~57.0.3",
+    "fflate": "^0.8.3",
     "lucide-react-native": "^1.49.0",
     "nativewind": "^4.2.7",
     "react": "19.2.3",
@@ -56,7 +60,8 @@
     "ios": "expo start --ios",
     "web": "expo start --web",
     "lint": "expo lint",
-    "test:db": "node --no-warnings --import ./tests/database/register-ts.mjs --test \"tests/database/*.test.mjs\""
+    "sheet": "node --no-warnings --import ./tests/database/register-ts.mjs scripts/generate-answer-sheet.mjs",
+    "test:db": "node --no-warnings --import ./tests/database/register-ts.mjs --test \"tests/**/*.test.mjs\""
   },
   "private": true
 }

@@ -25,6 +25,13 @@ import { ClassSubjectUseCasesProvider } from '@/features/class-subjects/presenta
 import { createClassUseCases } from '@/features/classes/application/class-use-cases';
 import { createSqliteClassRepository } from '@/features/classes/infrastructure/sqlite-class-repository';
 import { ClassUseCasesProvider } from '@/features/classes/presentation/class-use-cases-context';
+import { createScanUseCases } from '@/features/scan/application/scan-use-cases';
+import { expoPrintableSheet } from '@/features/scan/infrastructure/expo-printable-sheet';
+import { expoScanFileSystem } from '@/features/scan/infrastructure/expo-scan-file-system';
+import { createScanImageStore } from '@/features/scan/infrastructure/scan-image-store';
+import { createSqliteResultRepository } from '@/features/scan/infrastructure/sqlite-result-repository';
+import { typescriptSheetReader } from '@/features/scan/infrastructure/typescript-sheet-reader';
+import { ScanUseCasesProvider } from '@/features/scan/presentation/scan-use-cases-context';
 import { createStudentUseCases } from '@/features/students/application/student-use-cases';
 import { expoRosterFileSystem } from '@/features/students/infrastructure/expo-roster-file-system';
 import { createRosterFilePicker } from '@/features/students/infrastructure/roster-file-picker';
@@ -47,7 +54,23 @@ function UseCaseProviders({ children }: PropsWithChildren) {
   const useCases = useMemo(() => {
     if (!db) return null;
     const classRepository = createSqliteClassRepository(db);
+    const subjectRepository = createSqliteSubjectRepository(db);
+    const answerKeyRepository = createSqliteAnswerKeyRepository(db);
+    const classSubjectRepository = createSqliteClassSubjectRepository(db);
+    const studentRepository = createSqliteStudentRepository(db);
     return {
+        scan: createScanUseCases({
+          subjects: subjectRepository,
+          answerKeys: answerKeyRepository,
+          classSubjects: classSubjectRepository,
+          students: studentRepository,
+          results: createSqliteResultRepository(db),
+          reader: typescriptSheetReader,
+          images: createScanImageStore({ fileSystem: expoScanFileSystem, newName: randomUUID }),
+          printableSheet: expoPrintableSheet,
+          clock,
+          idGenerator,
+        }),
         subjects: createSubjectUseCases({
           repository: createSqliteSubjectRepository(db),
           clock,
@@ -79,7 +102,7 @@ function UseCaseProviders({ children }: PropsWithChildren) {
         <ClassSubjectUseCasesProvider value={useCases?.classSubjects ?? null}>
           <StudentUseCasesProvider value={useCases?.students ?? null}>
             <AnswerKeyUseCasesProvider value={useCases?.answerKeys ?? null}>
-              {children}
+              <ScanUseCasesProvider value={useCases?.scan ?? null}>{children}</ScanUseCasesProvider>
             </AnswerKeyUseCasesProvider>
           </StudentUseCasesProvider>
         </ClassSubjectUseCasesProvider>

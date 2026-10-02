@@ -12,7 +12,14 @@ export const ANSWER_CHOICES = ['A', 'B', 'C', 'D'] as const;
 export type AnswerChoice = (typeof ANSWER_CHOICES)[number];
 
 export const ANSWER_KEY_MIN_QUESTIONS = 1;
-export const ANSWER_KEY_MAX_QUESTIONS = 40;
+
+/**
+ * The Teacher decides how many questions a test has; the database sets no
+ * upper limit. This ceiling only keeps a mistyped number (2000 for 20) from
+ * building a form the phone cannot show. Raise it here if a real test needs
+ * more; no migration is involved.
+ */
+export const ANSWER_KEY_MAX_QUESTIONS = 200;
 
 /** The same limit as subject and class names, so a name fits a list row. */
 export const ANSWER_KEY_NAME_MAX_LENGTH = 60;

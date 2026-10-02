@@ -102,13 +102,19 @@ export function createSqliteClassRepository(db: SqlConnection): ClassRepository 
       return withTypedErrors('delete the class', () =>
         runInTransaction(db, async () => {
           if (!(await find(id))) throw new RecordNotFoundError(id);
-          const usage = await db.getFirstAsync<{ student_count: number }>(
-            'SELECT COUNT(*) AS student_count FROM students WHERE class_id = ?',
-            [id]
+          const usage = await db.getFirstAsync<{ student_count: number; result_count: number }>(
+            `SELECT
+               (SELECT COUNT(*) FROM students WHERE class_id = ?) AS student_count,
+               (SELECT COUNT(*) FROM results WHERE class_id = ?) AS result_count`,
+            [id, id]
           );
           const studentCount = usage?.student_count ?? 0;
-          if (studentCount > 0) throw new ClassInUseError(studentCount);
-          // A physical delete. ON DELETE RESTRICT on students.class_id still guards it.
+          const resultCount = usage?.result_count ?? 0;
+          if (studentCount > 0 || resultCount > 0) {
+            throw new ClassInUseError(studentCount, resultCount);
+          }
+          // A physical delete. ON DELETE RESTRICT on students.class_id and
+          // results.class_id still guards it.
           await db.runAsync('DELETE FROM classes WHERE id = ?', [id]);
         })
       );

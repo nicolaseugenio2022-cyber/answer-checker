@@ -32,10 +32,18 @@ const COPY: NameListCopy = {
 
 function describeClassError(error: unknown): ErrorDescription {
   if (error instanceof ClassInUseError) {
-    return {
-      kind: 'blocked',
-      message: `This class contains ${countOf(error.studentCount, 'student')}. Move or delete those students first; then the class can be deleted.`,
-    };
+    const reasons: string[] = [];
+    if (error.studentCount > 0) {
+      reasons.push(
+        `This class contains ${countOf(error.studentCount, 'student')}. Move or delete those students first.`
+      );
+    }
+    if (error.resultCount > 0) {
+      reasons.push(
+        `${countOf(error.resultCount, 'saved result')} ${error.resultCount === 1 ? 'was' : 'were'} scanned for this class. Delete those results permanently first.`
+      );
+    }
+    return { kind: 'blocked', message: reasons.join(' ') };
   }
   return describeNameError(error, COPY.noun);
 }

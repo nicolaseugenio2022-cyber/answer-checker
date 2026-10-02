@@ -313,7 +313,7 @@ export function AnswerKeyFormDialog({
                 />
                 <Input
                   value={countText}
-                  onChangeText={(text) => setCountText(text.replace(/[^0-9]/g, '').slice(0, 2))}
+                  onChangeText={(text) => setCountText(text.replace(/[^0-9]/g, '').slice(0, 3))}
                   onEndEditing={() => requestCount(Number.parseInt(countText, 10))}
                   accessibilityLabel="Number of questions"
                   keyboardType="number-pad"
@@ -331,7 +331,7 @@ export function AnswerKeyFormDialog({
                 />
               </View>
               <Text className="text-sm leading-5 text-muted-foreground">
-                From {ANSWER_KEY_MIN_QUESTIONS} to {ANSWER_KEY_MAX_QUESTIONS}.
+                As many as the test has. Type the number or use the buttons.
               </Text>
             </View>
 

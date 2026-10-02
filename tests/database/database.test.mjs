@@ -18,6 +18,12 @@ import { openTestDatabase } from './test-database.mjs';
 const NOW = '2026-10-02T08:30:00.000Z';
 const LATEST = MIGRATIONS.length;
 
+// Results and answers are written with named columns; these keep the tests short.
+const RESULT_INSERT =
+  "INSERT INTO results (id, answer_key_id, student_id, class_id, score, total, template_id, captured_at, created_at) VALUES (?1, ?2, ?3, (SELECT class_id FROM students WHERE id = ?3), ?4, ?5, 'AC-40-V1', ?6, ?6)";
+const ANSWER_INSERT =
+  'INSERT INTO student_answers (id, result_id, question_number, detected_state, detected_answer, final_answer, correct_answer, is_correct, manually_corrected, confidence) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)';
+
 const EXPECTED_TABLES = [
   'answer_key_items',
   'answer_keys',
@@ -57,27 +63,9 @@ function seed() {
   t.run('INSERT INTO answer_keys VALUES (?, ?, ?, ?, ?, ?)', 'key-1', 'sub-1', 'Quiz 1', 2, NOW, NOW);
   t.run('INSERT INTO answer_key_items VALUES (?, ?, ?)', 'key-1', 1, 'B');
   t.run('INSERT INTO answer_key_items VALUES (?, ?, ?)', 'key-1', 2, 'D');
-  t.run('INSERT INTO results VALUES (?, ?, ?, ?, ?, ?)', 'res-1', 'key-1', 'stu-1', 1, 2, NOW);
-  t.run(
-    'INSERT INTO student_answers VALUES (?, ?, ?, ?, ?, ?, ?)',
-    'ans-1',
-    'res-1',
-    1,
-    'SELECTED',
-    'B',
-    1,
-    0
-  );
-  t.run(
-    'INSERT INTO student_answers VALUES (?, ?, ?, ?, ?, ?, ?)',
-    'ans-2',
-    'res-1',
-    2,
-    'BLANK',
-    null,
-    0,
-    0
-  );
+  t.run(RESULT_INSERT, 'res-1', 'key-1', 'stu-1', 1, 2, NOW);
+  t.run(ANSWER_INSERT, 'ans-1', 'res-1', 1, 'MARKED', 'B', 'B', 'B', 1, 0, 0.9);
+  t.run(ANSWER_INSERT, 'ans-2', 'res-1', 2, 'BLANK', null, null, 'D', 0, 0, 0.8);
   t.run('INSERT INTO scan_records VALUES (?, ?, ?, ?)', 'scn-1', 'res-1', 'scans/res-1.jpg', NOW);
 }
 
@@ -116,6 +104,7 @@ describe('fresh database', () => {
       'idx_answer_keys_subject_id_name',
       'idx_class_subjects_subject_id',
       'idx_results_answer_key_id_student_id',
+      'idx_results_class_id',
       'idx_results_created_at',
       'idx_results_student_id',
       'idx_students_class_id_full_name',
@@ -150,6 +139,7 @@ describe('fresh database', () => {
       'class_subjects.class_id -> classes.id CASCADE',
       'class_subjects.subject_id -> subjects.id CASCADE',
       'results.answer_key_id -> answer_keys.id RESTRICT',
+      'results.class_id -> classes.id RESTRICT',
       'results.student_id -> students.id RESTRICT',
       'scan_records.result_id -> results.id CASCADE',
       'student_answers.result_id -> results.id CASCADE',
@@ -281,7 +271,7 @@ describe('foreign-key enforcement', () => {
     );
     assert.throws(
       () =>
-        t.run('INSERT INTO results VALUES (?, ?, ?, ?, ?, ?)', 'res-x', 'no-such-key', 'stu-1', 0, 1, NOW),
+        t.run(RESULT_INSERT, 'res-x', 'no-such-key', 'stu-1', 0, 1, NOW),
       /FOREIGN KEY/
     );
     assert.throws(
@@ -332,6 +322,14 @@ describe('foreign-key enforcement', () => {
     assert.throws(() => t.run('DELETE FROM classes WHERE id = ?', 'cls-1'), /FOREIGN KEY/);
     assert.equal(count('classes'), 1);
     assert.equal(count('students'), 1);
+  });
+
+  it('refuses to delete a class that results were scanned under, after its student moved away', () => {
+    t.run('INSERT INTO classes VALUES (?, ?, ?, ?)', 'cls-2', 'Grade 7 - B', NOW, NOW);
+    t.run('UPDATE students SET class_id = ? WHERE id = ?', 'cls-2', 'stu-1');
+    assert.throws(() => t.run('DELETE FROM classes WHERE id = ?', 'cls-1'), /FOREIGN KEY/);
+    // The result keeps the class of its scan.
+    assert.equal(t.get('SELECT class_id FROM results WHERE id = ?', 'res-1').class_id, 'cls-1');
   });
 
   it('refuses to delete a subject that still has answer keys', () => {
@@ -405,21 +403,15 @@ describe('uniqueness constraints', () => {
     rejectsUnique('INSERT INTO answer_key_items VALUES (?, ?, ?)', 'key-1', 1, 'C');
   });
 
-  it('rejects a second result for the same student and answer key', () => {
-    rejectsUnique('INSERT INTO results VALUES (?, ?, ?, ?, ?, ?)', 'res-2', 'key-1', 'stu-1', 0, 2, NOW);
+  it('allows a second result for the same student and answer key, as a separate attempt', () => {
+    t.run(RESULT_INSERT, 'res-2', 'key-1', 'stu-1', 0, 2, NOW);
+    assert.equal(count('results'), 2);
+    const index = t.get("SELECT sql FROM sqlite_master WHERE name = 'idx_results_answer_key_id_student_id'");
+    assert.doesNotMatch(index.sql, /UNIQUE/);
   });
 
   it('rejects a duplicate answer for a question, and a second scan record, in one result', () => {
-    rejectsUnique(
-      'INSERT INTO student_answers VALUES (?, ?, ?, ?, ?, ?, ?)',
-      'ans-3',
-      'res-1',
-      1,
-      'BLANK',
-      null,
-      0,
-      0
-    );
+    rejectsUnique(ANSWER_INSERT, 'ans-3', 'res-1', 1, 'BLANK', null, null, 'B', 0, 0, null);
     rejectsUnique('INSERT INTO scan_records VALUES (?, ?, ?, ?)', 'scn-2', 'res-1', null, NOW);
   });
 
@@ -461,19 +453,21 @@ describe('check constraints', () => {
     rejectsCheck('INSERT INTO answer_key_items VALUES (?, ?, ?)', 'key-1', 'three', 'A');
   });
 
-  it('accepts a question count from 1 to 40 and rejects 0 and 41', () => {
+  it('accepts any positive question count and rejects 0 and a negative one', () => {
     const insert = 'INSERT INTO answer_keys VALUES (?, ?, ?, ?, ?, ?)';
     t.run(insert, 'key-2', 'sub-1', 'One', 1, NOW, NOW);
-    t.run(insert, 'key-3', 'sub-1', 'Forty', 40, NOW, NOW);
+    t.run(insert, 'key-3', 'sub-1', 'Forty-one', 41, NOW, NOW);
+    t.run(insert, 'key-5', 'sub-1', 'Five hundred', 500, NOW, NOW);
     rejectsCheck(insert, 'key-4', 'sub-1', 'Zero', 0, NOW, NOW);
-    rejectsCheck(insert, 'key-4', 'sub-1', 'Forty-one', 41, NOW, NOW);
+    rejectsCheck(insert, 'key-4', 'sub-1', 'Negative', -1, NOW, NOW);
   });
 
-  it('accepts a question number from 1 to 40 and rejects 0 and 41', () => {
+  it('accepts any positive question number and rejects 0 and a negative one', () => {
     const insert = 'INSERT INTO answer_key_items VALUES (?, ?, ?)';
-    t.run(insert, 'key-1', 40, 'A');
+    t.run(insert, 'key-1', 41, 'A');
+    t.run(insert, 'key-1', 500, 'A');
     rejectsCheck(insert, 'key-1', 0, 'A');
-    rejectsCheck(insert, 'key-1', 41, 'A');
+    rejectsCheck(insert, 'key-1', -1, 'A');
   });
 
   it('accepts each of A, B, C, D as a correct answer and as a student answer', () => {
@@ -482,16 +476,7 @@ describe('check constraints', () => {
     ['A', 'B', 'C', 'D'].forEach((letter, index) => {
       const number = index + 10;
       t.run('INSERT INTO answer_key_items VALUES (?, ?, ?)', 'key-1', number, letter);
-      t.run(
-        'INSERT INTO student_answers VALUES (?, ?, ?, ?, ?, ?, ?)',
-        `ans-${number}`,
-        'res-1',
-        number,
-        'SELECTED',
-        letter,
-        1,
-        0
-      );
+      t.run(ANSWER_INSERT, `ans-${number}`, 'res-1', number, 'MARKED', letter, letter, letter, 1, 0, 1);
     });
     assert.equal(count('answer_key_items'), 4);
     assert.equal(count('student_answers'), 4);
@@ -504,44 +489,48 @@ describe('check constraints', () => {
     rejectsCheck('INSERT INTO answer_key_items VALUES (?, ?, ?)', 'key-1', 3, null);
   });
 
-  it('rejects E as a student answer', () => {
-    rejectsCheck(
-      'INSERT INTO student_answers VALUES (?, ?, ?, ?, ?, ?, ?)',
-      'ans-3',
-      'res-1',
-      3,
-      'SELECTED',
-      'E',
-      0,
-      0
-    );
+  it('rejects E as a detected, final, or correct answer', () => {
+    rejectsCheck(ANSWER_INSERT, 'ans-3', 'res-1', 3, 'MARKED', 'E', 'A', 'A', 1, 0, null);
+    rejectsCheck(ANSWER_INSERT, 'ans-3', 'res-1', 3, 'MARKED', 'A', 'E', 'A', 0, 0, null);
+    rejectsCheck(ANSWER_INSERT, 'ans-3', 'res-1', 3, 'MARKED', 'A', 'A', 'E', 0, 0, null);
+    rejectsCheck(ANSWER_INSERT, 'ans-3', 'res-1', 3, 'MARKED', 'A', 'A', null, 0, 0, null);
   });
 
-  it('rejects impossible scores', () => {
+  it('rejects impossible scores and a result without a template or class', () => {
     t.run('DELETE FROM results WHERE id = ?', 'res-1');
-    const insert = 'INSERT INTO results VALUES (?, ?, ?, ?, ?, ?)';
-    rejectsCheck(insert, 'res-2', 'key-1', 'stu-1', -1, 2, NOW);
-    rejectsCheck(insert, 'res-2', 'key-1', 'stu-1', 3, 2, NOW);
-    rejectsCheck(insert, 'res-2', 'key-1', 'stu-1', 0, -1, NOW);
+    rejectsCheck(RESULT_INSERT, 'res-2', 'key-1', 'stu-1', -1, 2, NOW);
+    rejectsCheck(RESULT_INSERT, 'res-2', 'key-1', 'stu-1', 3, 2, NOW);
+    rejectsCheck(RESULT_INSERT, 'res-2', 'key-1', 'stu-1', 0, 0, NOW);
+    const full =
+      'INSERT INTO results (id, answer_key_id, student_id, class_id, score, total, template_id, captured_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)';
+    rejectsCheck(full, 'res-2', 'key-1', 'stu-1', 'cls-1', 1, 2, '', NOW, NOW);
+    rejectsCheck(full, 'res-2', 'key-1', 'stu-1', null, 1, 2, 'AC-40-V1', NOW, NOW);
+    rejectsCheck(full, 'res-2', 'key-1', 'stu-1', 'cls-1', 1, 2, 'AC-40-V1', 'yesterday', NOW);
+    t.run(full, 'res-2', 'key-1', 'stu-1', 'cls-1', 2, 2, 'AC-40-V1', NOW, NOW);
   });
 
-  it('rejects unknown answer states and inconsistent state and letter pairs', () => {
-    const insert = 'INSERT INTO student_answers VALUES (?, ?, ?, ?, ?, ?, ?)';
-    rejectsCheck(insert, 'ans-3', 'res-1', 3, 'GUESSED', null, 0, 0);
-    rejectsCheck(insert, 'ans-3', 'res-1', 3, 'SELECTED', null, 0, 0);
-    rejectsCheck(insert, 'ans-3', 'res-1', 3, 'BLANK', 'A', 0, 0);
-    rejectsCheck(insert, 'ans-3', 'res-1', 3, 'MULTIPLE', 'A', 0, 0);
-    rejectsCheck(insert, 'ans-3', 'res-1', 3, 'SELECTED', 'Z', 0, 0);
-    rejectsCheck(insert, 'ans-3', 'res-1', 3, 'SELECTED', 'A', 2, 0);
-    rejectsCheck(insert, 'ans-3', 'res-1', 3, 'SELECTED', 'A', 1, 5);
-    rejectsCheck(insert, 'ans-3', 'res-1', 41, 'BLANK', null, 0, 0);
-    for (const [id, number, state] of [
-      ['ans-3', 3, 'MULTIPLE'],
-      ['ans-4', 4, 'UNCERTAIN'],
-    ]) {
-      t.run(insert, id, 'res-1', number, state, null, 0, 0);
-    }
-    assert.equal(count('student_answers'), 4);
+  it('rejects unknown detection states and inconsistent answers', () => {
+    const bad = (...values) => rejectsCheck(ANSWER_INSERT, 'ans-3', 'res-1', 3, ...values);
+    //   state      detected final correct isCorrect corrected confidence
+    bad('GUESSED', null, null, 'A', 0, 0, null);
+    bad('SELECTED', 'A', 'A', 'A', 1, 0, null); // the old name of MARKED
+    bad('MARKED', null, 'A', 'A', 1, 0, null); // marked needs the letter read
+    bad('BLANK', 'A', 'A', 'A', 1, 0, null); // a blank has no letter read
+    bad('MULTIPLE', 'A', null, 'A', 0, 0, null);
+    bad('MARKED', 'A', 'A', 'A', 0, 0, null); // right answer stored as incorrect
+    bad('MARKED', 'A', 'A', 'B', 1, 0, null); // wrong answer stored as correct
+    bad('BLANK', null, null, 'A', 1, 0, null); // a blank can never be correct
+    bad('MARKED', 'A', 'A', 'A', 2, 0, null);
+    bad('MARKED', 'A', 'A', 'A', 1, 5, null);
+    bad('MARKED', 'A', 'A', 'A', 1, 0, 1.5);
+    bad('MARKED', 'A', 'A', 'A', 1, 0, -0.1);
+    rejectsCheck(ANSWER_INSERT, 'ans-3', 'res-1', 0, 'BLANK', null, null, 'A', 0, 0, null);
+
+    // What a review can produce: a read mark, a correction, a confirmed blank.
+    t.run(ANSWER_INSERT, 'ans-3', 'res-1', 3, 'MULTIPLE', null, 'C', 'C', 1, 1, 0.6);
+    t.run(ANSWER_INSERT, 'ans-4', 'res-1', 4, 'UNCLEAR', null, null, 'A', 0, 1, 0.2);
+    t.run(ANSWER_INSERT, 'ans-5', 'res-1', 5, 'MARKED', 'A', 'B', 'B', 1, 1, null);
+    assert.equal(count('student_answers'), 5);
   });
 
   it('allows a scan record without an image but rejects an empty path', () => {

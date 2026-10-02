@@ -19,6 +19,7 @@ import {
 } from '../../src/features/answer-keys/application/answer-key-repository.ts';
 import { createAnswerKeyUseCases } from '../../src/features/answer-keys/application/answer-key-use-cases.ts';
 import {
+  ANSWER_KEY_MAX_QUESTIONS,
   ANSWER_KEY_NAME_MAX_LENGTH,
   assembleAnswers,
   proposeCopyName,
@@ -91,7 +92,15 @@ function insertSubject(id, name) {
 function insertResult(answerKeyId, resultId = `res-${answerKeyId}`) {
   t.run('INSERT OR IGNORE INTO classes VALUES (?, ?, ?, ?)', 'cls-1', 'BSIT 1A', T0, T0);
   t.run('INSERT INTO students VALUES (?, ?, ?, ?, ?, ?)', `stu-${resultId}`, 'cls-1', resultId, 'Student', T0, T0);
-  t.run('INSERT INTO results VALUES (?, ?, ?, ?, ?, ?)', resultId, answerKeyId, `stu-${resultId}`, 1, 2, T0);
+  t.run(
+    "INSERT INTO results (id, answer_key_id, student_id, class_id, score, total, template_id, captured_at, created_at) VALUES (?1, ?2, ?3, (SELECT class_id FROM students WHERE id = ?3), ?4, ?5, 'AC-40-V1', ?6, ?6)",
+    resultId,
+    answerKeyId,
+    `stu-${resultId}`,
+    1,
+    2,
+    T0
+  );
 }
 
 const input = (changes = {}) => ({
@@ -154,7 +163,7 @@ function assertConverted() {
   // already read. Stepping any query makes SQLite reload the schema here; without
   // it, Node's SQLite sizes the next result by the old table's column count.
   t.all('SELECT name FROM sqlite_master LIMIT 1');
-  assert.equal(userVersion(), 4);
+  assert.equal(userVersion(), LATEST);
 
   assert.deepEqual(plain(t.all('SELECT * FROM answer_keys ORDER BY id')), [
     { id: 'exm-1', subject_id: 'sub-1', name: 'Midterm (BSIT 1A)', question_count: 3, created_at: T0, updated_at: T1 },
@@ -173,12 +182,23 @@ function assertConverted() {
     ]
   );
   // Results keep their ids and now point at the answer key.
+  // ...and, since migration 6, carry the class of the scan and a template id.
   assert.deepEqual(plain(t.all('SELECT * FROM results')), [
-    { id: 'res-1', answer_key_id: 'exm-1', student_id: 'stu-1', score: 2, total: 3, created_at: T1 },
+    {
+      id: 'res-1',
+      answer_key_id: 'exm-1',
+      student_id: 'stu-1',
+      class_id: 'cls-1',
+      score: 2,
+      total: 3,
+      template_id: 'UNKNOWN',
+      captured_at: T1,
+      created_at: T1,
+    },
   ]);
   assert.deepEqual(plain(t.all('SELECT * FROM student_answers ORDER BY id')), [
-    { id: 'ans-1', result_id: 'res-1', question_number: 1, state: 'SELECTED', selected_answer: 'B', is_correct: 1, teacher_corrected: 0 },
-    { id: 'ans-2', result_id: 'res-1', question_number: 2, state: 'BLANK', selected_answer: null, is_correct: 0, teacher_corrected: 1 },
+    { id: 'ans-1', result_id: 'res-1', question_number: 1, detected_state: 'MARKED', detected_answer: 'B', final_answer: 'B', correct_answer: 'B', is_correct: 1, manually_corrected: 0, confidence: null },
+    { id: 'ans-2', result_id: 'res-1', question_number: 2, detected_state: 'BLANK', detected_answer: null, final_answer: null, correct_answer: 'D', is_correct: 0, manually_corrected: 1, confidence: null },
   ]);
   assert.deepEqual(plain(t.all('SELECT * FROM scan_records')), [
     { id: 'scn-1', result_id: 'res-1', image_path: 'scans/res-1.jpg', scanned_at: T1 },
@@ -206,7 +226,7 @@ function assertSchemaIsClean() {
     .all('SELECT name, sql FROM sqlite_master UNION ALL SELECT name, sql FROM sqlite_temp_master')
     .map((row) => `${row.name} ${row.sql ?? ''}`)
     .join('\n');
-  assert.doesNotMatch(names, /exam|new_|migration_4/i);
+  assert.doesNotMatch(names, /exam|new_|migration_/i);
 
   // An answer key belongs to a subject only: it has no class column.
   assert.deepEqual(
@@ -237,10 +257,10 @@ function assertSchemaIsClean() {
 }
 
 describe('migration 4: answer keys replace exams', () => {
-  it('brings a fresh database to version 4 with the answer key schema', async () => {
+  it('gives a fresh database the answer key schema', async () => {
     t = openTestDatabase();
-    assert.equal(await initializeDatabase(t.db), 4);
-    assert.equal(LATEST, 4);
+    assert.equal(await initializeDatabase(t.db), LATEST);
+    assert.ok(LATEST >= 4);
     assertSchemaIsClean();
     for (const table of tables()) assert.equal(count(table), 0, table);
   });
@@ -251,7 +271,7 @@ describe('migration 4: answer keys replace exams', () => {
       assert.equal(await initializeDatabase(t.db, MIGRATIONS.slice(0, from)), from);
       seedLegacy();
 
-      assert.equal(await initializeDatabase(t.db), 4);
+      assert.equal(await initializeDatabase(t.db), LATEST);
 
       assertConverted();
       assertSchemaIsClean();
@@ -289,7 +309,7 @@ describe('migration 4: answer keys replace exams', () => {
     await initializeDatabase(t.db);
     const before = schemaSnapshot();
 
-    assert.equal(await initializeDatabase(t.db), 4);
+    assert.equal(await initializeDatabase(t.db), LATEST);
 
     assert.equal(schemaSnapshot(), before);
     assertConverted();
@@ -372,6 +392,111 @@ describe('migration 4: answer keys replace exams', () => {
   });
 });
 
+describe('migration 5: no upper limit on the number of questions', () => {
+  /** A version-4 database with two keys, their items, and a result with answers and a scan record. */
+  async function openVersion4() {
+    t = openTestDatabase();
+    assert.equal(await initializeDatabase(t.db, MIGRATIONS.slice(0, 4)), 4);
+    insertSubject('sub-1', 'Mathematics');
+    t.run('INSERT INTO classes VALUES (?, ?, ?, ?)', 'cls-1', 'BSIT 1A', T0, T0);
+    t.run('INSERT INTO students VALUES (?, ?, ?, ?, ?, ?)', 'stu-1', 'cls-1', '2026-001', 'Maria Santos', T0, T0);
+    t.run('INSERT INTO answer_keys VALUES (?, ?, ?, ?, ?, ?)', 'key-1', 'sub-1', 'Midterm', 3, T0, T1);
+    t.run('INSERT INTO answer_keys VALUES (?, ?, ?, ?, ?, ?)', 'key-2', 'sub-1', 'Finals', 40, T0, T0);
+    for (const [number, answer] of [[2, 'D'], [1, 'B'], [3, 'A']]) {
+      t.run('INSERT INTO answer_key_items VALUES (?, ?, ?)', 'key-1', number, answer);
+    }
+    for (let number = 1; number <= 40; number++) {
+      t.run('INSERT INTO answer_key_items VALUES (?, ?, ?)', 'key-2', number, 'C');
+    }
+    t.run('INSERT INTO results VALUES (?, ?, ?, ?, ?, ?)', 'res-1', 'key-1', 'stu-1', 2, 3, T1);
+    t.run('INSERT INTO student_answers VALUES (?, ?, ?, ?, ?, ?, ?)', 'ans-1', 'res-1', 1, 'SELECTED', 'B', 1, 0);
+    t.run('INSERT INTO student_answers VALUES (?, ?, ?, ?, ?, ?, ?)', 'ans-2', 'res-1', 2, 'BLANK', null, 0, 1);
+    t.run('INSERT INTO scan_records VALUES (?, ?, ?, ?)', 'scn-1', 'res-1', 'scans/res-1.jpg', T1);
+  }
+
+  const TABLES = ['answer_keys', 'answer_key_items', 'results', 'student_answers', 'scan_records', 'subjects', 'classes', 'students'];
+  const dump = () => Object.fromEntries(TABLES.map((table) => [table, plain(t.all(`SELECT * FROM ${table} ORDER BY 1, 2`))]));
+
+  it('the version-4 schema still refuses 41 questions, which is what this migration lifts', async () => {
+    await openVersion4();
+    assert.throws(
+      () => t.run('INSERT INTO answer_keys VALUES (?, ?, ?, ?, ?, ?)', 'key-3', 'sub-1', 'Long', 41, T0, T0),
+      /CHECK constraint failed/
+    );
+  });
+
+  it('upgrades a version-4 database and keeps every row exactly', async () => {
+    await openVersion4();
+    const before = dump();
+
+    assert.equal(await initializeDatabase(t.db, MIGRATIONS.slice(0, 5)), 5);
+    t.all('SELECT name FROM sqlite_master LIMIT 1');
+
+    assert.ok(LATEST >= 5);
+    assert.equal(userVersion(), 5);
+    assert.deepEqual(dump(), before);
+    assertSchemaIsClean();
+    const key = await build().getAnswerKey('key-1');
+    assert.deepEqual(key.answers, ['B', 'D', 'A']);
+    assert.equal(key.resultCount, 1);
+  });
+
+  it('allows more than 40 questions afterwards, in every table that had the limit', async () => {
+    await openVersion4();
+    await initializeDatabase(t.db, MIGRATIONS.slice(0, 5));
+    t.all('SELECT name FROM sqlite_master LIMIT 1');
+
+    t.run('INSERT INTO answer_keys VALUES (?, ?, ?, ?, ?, ?)', 'key-3', 'sub-1', 'Long', 120, T0, T0);
+    t.run('INSERT INTO answer_key_items VALUES (?, ?, ?)', 'key-3', 120, 'A');
+    t.run('INSERT INTO student_answers VALUES (?, ?, ?, ?, ?, ?, ?)', 'ans-3', 'res-1', 120, 'BLANK', null, 0, 0);
+    for (const bad of [0, -1]) {
+      assert.throws(
+        () => t.run('INSERT INTO answer_keys VALUES (?, ?, ?, ?, ?, ?)', 'key-4', 'sub-1', 'Bad', bad, T0, T0),
+        /CHECK constraint failed/
+      );
+      assert.throws(() => t.run('INSERT INTO answer_key_items VALUES (?, ?, ?)', 'key-3', bad, 'A'), /CHECK constraint failed/);
+    }
+  });
+
+  it('keeps the indexes, the delete rules, and the name rule of the rebuilt tables', async () => {
+    await openVersion4();
+    await initializeDatabase(t.db, MIGRATIONS.slice(0, 5));
+    t.all('SELECT name FROM sqlite_master LIMIT 1');
+
+    const indexes = t
+      .all("SELECT name FROM sqlite_master WHERE type = 'index' AND name LIKE 'idx_answer_keys%' ORDER BY name")
+      .map((row) => row.name);
+    assert.deepEqual(indexes, ['idx_answer_keys_created_at', 'idx_answer_keys_subject_id_name']);
+    assert.throws(
+      () => t.run('INSERT INTO answer_keys VALUES (?, ?, ?, ?, ?, ?)', 'key-3', 'sub-1', 'MIDTERM', 5, T0, T0),
+      /UNIQUE constraint failed/
+    );
+    // A key with results and a subject with keys are still protected.
+    assert.throws(() => t.run('DELETE FROM answer_keys WHERE id = ?', 'key-1'), /FOREIGN KEY/);
+    assert.throws(() => t.run('DELETE FROM subjects WHERE id = ?', 'sub-1'), /FOREIGN KEY/);
+    // Deleting a result takes its answers; deleting an unused key takes its items.
+    t.run('DELETE FROM answer_keys WHERE id = ?', 'key-2');
+    assert.equal(count('answer_key_items'), 3);
+    t.run('DELETE FROM results WHERE id = ?', 'res-1');
+    assert.equal(count('student_answers'), 0);
+  });
+
+  it('upgrades from versions 1, 2, and 3 through the conversion, and does nothing when run again', async () => {
+    for (const from of [1, 2, 3]) {
+      t = openTestDatabase();
+      await initializeDatabase(t.db, MIGRATIONS.slice(0, from));
+      seedLegacy();
+      assert.equal(await initializeDatabase(t.db), LATEST);
+      assertConverted();
+      assertSchemaIsClean();
+      const before = schemaSnapshot();
+      assert.equal(await initializeDatabase(t.db), LATEST);
+      assert.equal(schemaSnapshot(), before);
+      if (from !== 3) t.close();
+    }
+  });
+});
+
 // ---------------------------------------------------------------------------
 // Domain rules
 // ---------------------------------------------------------------------------
@@ -394,20 +519,25 @@ describe('answer key rules', () => {
     });
   });
 
-  it('accepts 1 and 40 questions and rejects 0, 41, and a fraction', () => {
-    assert.equal(validateAnswerKeyInput(input({ questionCount: 1, answers: ['C'] })).ok, true);
-    assert.equal(
-      validateAnswerKeyInput(input({ questionCount: 40, answers: Array(40).fill('D') })).ok,
-      true
-    );
+  it('accepts 1 question, more than 40, and the ceiling, and rejects 0, one more, and a fraction', () => {
+    const MAX = ANSWER_KEY_MAX_QUESTIONS;
+    assert.ok(MAX > 40);
+    for (const questionCount of [1, 41, 75, MAX]) {
+      assert.equal(
+        validateAnswerKeyInput(input({ questionCount, answers: Array(questionCount).fill('D') })).ok,
+        true,
+        `${questionCount} questions`
+      );
+    }
     for (const [questionCount, answers] of [
       [0, []],
-      [41, Array(41).fill('A')],
+      [ANSWER_KEY_MAX_QUESTIONS + 1, Array(ANSWER_KEY_MAX_QUESTIONS + 1).fill('A')],
+      [-3, []],
       [2.5, ['A', 'B']],
       [Number.NaN, []],
     ]) {
       assert.deepEqual(problemsOf({ questionCount, answers }), [
-        { field: 'questionCount', problem: 'OUT_OF_RANGE', min: 1, max: 40 },
+        { field: 'questionCount', problem: 'OUT_OF_RANGE', min: 1, max: ANSWER_KEY_MAX_QUESTIONS },
       ]);
     }
   });
@@ -537,19 +667,27 @@ describe('answer keys: create and read', () => {
     assert.equal(await keys.getAnswerKey('missing'), null);
   });
 
-  it('accepts keys of 1 and 40 questions and every choice', async () => {
+  it('stores keys of 1 question, more than 40, and the ceiling, complete and in order', async () => {
     const keys = build();
+    const pattern = (length) => Array.from({ length }, (_, index) => 'ABCD'[index % 4]);
     await keys.createAnswerKey(input({ name: 'One', questionCount: 1, answers: ['C'] }));
-    await keys.createAnswerKey(input({ name: 'Forty', questionCount: 40, answers: Array(40).fill('B') }));
-    assert.equal(count('answer_keys'), 2);
-    assert.equal(count('answer_key_items'), 41);
+    const sixty = await keys.createAnswerKey(input({ name: 'Sixty', questionCount: 60, answers: pattern(60) }));
+    const largest = await keys.createAnswerKey(
+      input({ name: 'Largest', questionCount: ANSWER_KEY_MAX_QUESTIONS, answers: pattern(ANSWER_KEY_MAX_QUESTIONS) })
+    );
+
+    assert.equal(count('answer_keys'), 3);
+    assert.equal(count('answer_key_items'), 1 + 60 + ANSWER_KEY_MAX_QUESTIONS);
+    assert.deepEqual((await keys.getAnswerKey(sixty.id)).answers, pattern(60));
+    assert.deepEqual((await keys.getAnswerKey(largest.id)).answers, pattern(ANSWER_KEY_MAX_QUESTIONS));
+    assert.equal(t.get('SELECT MAX(question_number) AS n FROM answer_key_items').n, ANSWER_KEY_MAX_QUESTIONS);
   });
 
   it('rejects an invalid key with a typed error and stores nothing', async () => {
     const keys = build();
     for (const bad of [
       { questionCount: 0, answers: [] },
-      { questionCount: 41, answers: Array(41).fill('A') },
+      { questionCount: ANSWER_KEY_MAX_QUESTIONS + 1, answers: Array(ANSWER_KEY_MAX_QUESTIONS + 1).fill('A') },
       { answers: ['A', 'B', 'C', 'E'] },
       { answers: ['A', 'B', null, 'D'] },
       { answers: ['A', 'B'] },
