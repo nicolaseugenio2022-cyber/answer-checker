@@ -8,7 +8,7 @@ Answer Checker: an offline-only mobile app (React Native, Expo, TypeScript, Expo
 
 What exists: design system, bottom-tab navigation shell, a Home dashboard of shortcuts and empty states, a Settings screen with a theme switch, a local SQLite database whose first migration creates the schema, and the first two working features: Subjects and Classes (view, add, rename, delete permanently). Exams, Scan, Students, and Results are still placeholder screens.
 
-Phone-only product, Android first. No desktop or tablet layout, no sidebar, no drawer, no hover-dependent behavior. Web is only a preview of the phone UI (held to a 480-point column in the root layout); a physical Android device is the authority when they differ. Camera, OMR, students, exams, and results are not built. `docs/` is frozen and predates Subjects and Classes, so where it says they are placeholders or that no domain code exists, this file and the code are current.
+Phone-only product, Android first. No desktop or tablet layout, no sidebar, no drawer, no hover-dependent behavior. Web is only a preview of the phone UI (held to a 480-point column in the root layout); a physical Android device is the authority when they differ. Camera, OMR, students, exams, and results are not built. `docs/project.md#current-implementation-status` is the record of what is real as of its review date; where later code differs, the code and this file are current.
 
 ## Read before changing architecture
 
@@ -24,7 +24,7 @@ Decisions that must not be broken:
 - Record IDs are device-generated UUIDs, not auto-increment integers.
 - Not a Next.js or browser-first app. Do not import browser-only `shadcn/ui` or Radix web components.
 - Do not install OpenCV or Drizzle without a decision recorded in `docs/source-of-truth.md`. Drizzle is still undecided.
-- `docs/` is frozen. Do not create, edit, rename, or delete anything in it, by any means (editor tools, shell commands, or scripts), unless the user explicitly asks to change the docs. `.claude/settings.json` denies Edit and Write there. If code and docs drift apart, say so in your report instead of editing the docs; record new conventions in this file.
+- `docs/` is frozen. Agents may read it but must not modify, rename, format, regenerate, or delete anything in it, by any means (editor tools, shell commands, or scripts), unless the user explicitly says to unfreeze it. A request to build or change a feature is not permission to touch `docs/`. When the user temporarily unfreezes it, edits are limited to the authorized documentation task, and the freeze resumes automatically when that task ends, without being told. `.claude/settings.json` denies Edit and Write on `docs/**`; lifting that rule needs the user's explicit approval each time and it must be restored before the task is reported as done. If code and docs drift apart, say so in your report instead of editing the docs, and record new conventions in this file. `docs/` was last synchronized with the code on 2026-10-02 (schema version 2, Subjects, Classes, Subject-to-Class assignments).
 
 ## Commands
 
@@ -77,6 +77,10 @@ Shared pieces: `core/domain/record-name.ts` (trim, length in characters, case-in
 
 Domain, application, and infrastructure files use relative imports, `import type` for types, and no constructor parameter properties, because the Node tests load them directly with type stripping (no `@/` alias there). Presentation files use `@/`.
 
+`features/class-subjects` holds the Subject-to-Class assignment (no domain folder: it has no entity of its own): `createClassSubjectUseCases` with list subjects for a class, `listClassesForSubject` (what Scan will call after a subject is chosen), assign, remove, replace-all in one transaction, and counts per class and per subject. Unknown ids throw `ClassNotFoundError` / `SubjectNotFoundError`. The only editing workflow is Classes → Manage subjects (`ManageClassSubjectsDialog`); the Subjects screen only shows a count. Do not add a second editor.
+
+Planned scan order the data must keep supporting: pick a subject, then only classes assigned to it, then only students of that class, then an answer key of the subject. Changing the subject must clear a class and student that no longer match.
+
 Other features still have only a `presentation` folder.
 
 ### Navigation
@@ -99,6 +103,7 @@ Other features still have only a `presentation` folder.
 - Anything that depends on the clock or window size must render a stable value first on web (see `useGreeting`): pages are statically rendered, and a mismatch causes React hydration error #418.
 - The custom tab bar does not hide when the keyboard opens. Text entry so far happens only in `ModalCard` dialogs, which cover the bar. Handle the bar when a text input is added to a screen body.
 - List rows use `ItemGroup` / `Item` (`core/presentation/components/item.tsx`), a native take on shadcn Item: whole-row press targets with separators. Status tags use the Reusables `Badge`.
+- `NameListScreen` reloads its list whenever the screen gains focus (`useFocusEffect`), because screens stay mounted and another screen can change a row's detail line. A feature can add one more row button that opens its own dialog through `rowAction`.
 - Screens that manage a list of named records use `NameListScreen` (`core/presentation/components`): intro, Add button, loading / empty / failed / device-only states, rows with 48dp rename and delete buttons, `NameFormDialog`, `DeleteDialog`, and a `Notice`. A feature passes its words, its use cases as `operations`, and a `describeError` that turns typed errors into Teacher-facing text.
 - Dialogs use `ModalCard` (React Native `Modal`): Android back cancels, a tap outside does nothing. Use `position="top"` for a dialog with a text field so the keyboard cannot cover it. Mount a dialog only while it is open.
 - Never delete from a list action directly: open `DeleteDialog`, which names the record and says the deletion is permanent, with Cancel first.
@@ -112,6 +117,7 @@ Other features still have only a `presentation` folder.
 
 - `DatabaseProvider` (`src/core/infrastructure/database/`) wraps the app in the root layout. Native: opens `answer-checker.db` and runs `initializeDatabase` (WAL, `foreign_keys = ON`, verify it is on, migrate) before any screen renders. `database-provider.web.tsx` is a pass-through and `useDatabase()` throws there: web opens no database and persists nothing.
 - Schema is defined only by appending to `MIGRATIONS` in `migrations.ts`, one file per migration under `migrations/`. Versions must be 1, 2, 3… in order; never edit or reorder a migration once a build containing it has been installed. Version is tracked in `PRAGMA user_version`; each migration commits atomically with its version bump.
+- Migration 2 adds `class_subjects` (`class_id`, `subject_id`, `created_at`; composite primary key, index on `subject_id`): which subjects are taught to which classes. Its rows CASCADE with either parent; that cascade reaches only this table, and the RESTRICT rules of migration 1 still block deleting a class with students or exams and a subject with exams. Migration 1 has run on a physical device and is frozen; treat migration 2 as frozen too once a build containing it has been opened on a device.
 - Migration 1 creates `subjects`, `classes`, `students`, `exams`, `exam_questions`, `answer_keys`, `exam_results`, `student_answers`, `scan_records`. STRICT tables, TEXT UUID ids, UTC `toISOString()` timestamps, INTEGER 0/1 booleans. No teacher/account table and no soft-delete or sync columns.
 - Delete rules: CASCADE only inside an aggregate (exam to questions to answer keys; result to answers and scan record). RESTRICT elsewhere: a class with students or exams, a subject with exams, and a student or exam with results cannot be deleted. A use case that removes such a parent must delete its results explicitly in the same transaction, after reading their `scan_records.image_path` so the files can be removed after commit.
 - For data writes use `runInTransaction(db, task)`, never expo-sqlite's `withExclusiveTransactionAsync`: that opens a second connection where foreign keys are off, so RESTRICT and CASCADE would not apply. Migrations do use it, deliberately.

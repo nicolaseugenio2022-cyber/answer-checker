@@ -2,18 +2,42 @@
 
 Last reviewed: 2026-10-02
 
-This document covers network-facing routes. The application is offline-only, so there are none.
+This document covers network-facing routes. The application is offline-only, so there are none. The filename is kept because other documents link to it.
 
 ## Current State and Decision
 
 - There is no backend.
-- There are no network API routes, implemented or planned.
+- There are no HTTP, REST, GraphQL, WebSocket, or other network routes, implemented or planned.
 - No API is required for scanning, answer detection, scoring, saving, viewing, or deleting. All of it runs on the device against the local SQLite database stored on the Teacher's device.
 - The application makes no network requests.
 
 "Routes" under `src/app` are Expo Router screens inside the app. They are not network routes.
 
-Mobile application contracts (OMR, camera, repositories, scoring, permanent deletion) are in [api.md](./api.md).
+## What Exists Instead: Local Use Cases
+
+The app's operations are in-process TypeScript use cases that call local SQLite repositories. They are documented in [api.md](./api.md). The implemented ones are listed here only so nobody looks for an endpoint.
+
+| Area | Use cases (in-process, on the device) | Status |
+| --- | --- | --- |
+| Subjects | `listSubjects`, `addSubject`, `renameSubject`, `deleteSubject` | Implemented and verified on a physical Android phone |
+| Classes | `listClasses`, `addClass`, `renameClass`, `deleteClass` | Implemented and verified on a physical Android phone |
+| Subject-to-Class assignments | `listSubjectsForClass`, `listClassesForSubject`, `isSubjectAssignedToClass`, `assignSubjectToClass`, `removeSubjectFromClass`, `replaceSubjectsForClass`, `countSubjectsByClass`, `countClassesBySubject` | Implemented, not yet verified on a physical device |
+| Students, Answer Keys, Scan, Results | None yet | Planned |
+
+## App Screens
+
+Expo Router paths inside the app. They are not network routes.
+
+| Path | Screen | Reached from |
+| --- | --- | --- |
+| `/` | Home | Bottom tab 1 |
+| `/exams` | Placeholder titled "Exams & answer keys". Will become Answer Keys (tab label `Keys`) | Bottom tab 2 |
+| `/scan` | Placeholder | Bottom tab 3 |
+| `/students` | Placeholder | Bottom tab 4 |
+| `/results` | Placeholder | Bottom tab 5 |
+| `/classes` | Classes | Home → More → Classes |
+| `/subjects` | Subjects | Home → More → Subjects |
+| `/settings` | Settings | Home → More → Settings |
 
 ## Not Planned for This Version
 
