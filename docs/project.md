@@ -47,7 +47,7 @@ Accepted on a physical Android phone by the project owner, stage by stage, on 20
 - Expo + TypeScript project with Expo Router
 - Design system: NativeWind, React Native Reusables, neutral theme with pink identity color, light and dark tokens, selective glass surfaces
 - Navigation shell: a floating glass tab bar with exactly five tabs (Home, Keys, Scan, Students, Results) and a raised circular indicator on the selected tab
-- Home dashboard: greeting, quick actions, empty-state Activity rows, and a More list with Classes, Subjects, and Settings. It shows no statistics or records
+- **Home dashboard**: greeting, Scan answer sheet, Continue scanning, quick actions that open the create forms, real counts of Students, Classes, Answer Keys, and Results, Scanned today, the three most recent Results and Answer Keys, and a More list with Classes, Subjects, and Settings. Read from the database every time Home is shown
 - **Subjects** and **Classes**: view, add, rename, and permanently delete
 - **Students**: view grouped by Class, search by name or Student ID, filter by Class, add, edit, move to another Class, and permanently delete
 - **Roster import**: a CSV file with `student_id,full_name` into one Class, or with `student_id,full_name,grade_and_section,course` mapped group by group to existing Classes, with a preview before anything is stored
@@ -77,8 +77,8 @@ Code exists and passes the automated tests. These paths were not reported separa
 
 ### Planned
 
-- Home showing real activity
 - Calibration of the reader's thresholds on real printed sheets
+- Accessibility pass and final device testing
 
 No placeholder screen remains: all five tabs are working features.
 
@@ -127,7 +127,7 @@ Rules are in [source-of-truth.md](./source-of-truth.md#student-truth) and [sourc
 | Record IDs | `expo-crypto` 57 (`randomUUID`) | Implemented |
 | Roster files | `expo-document-picker` 57 to choose a CSV file; `expo-file-system` 57 to read and delete its temporary copy; the CSV reader is project code, with no parser dependency | Implemented |
 | Linting | ESLint 9 with `eslint-config-expo` | Implemented |
-| Automated tests | Node's built-in test runner with `node:sqlite`; no test framework installed | Implemented (457 tests: database, use cases, CSV, file lifecycles, sheet template and PDF, sheet reader, scan, results, demo data) |
+| Automated tests | Node's built-in test runner with `node:sqlite`; no test framework installed | Implemented (497 tests: database, use cases, CSV, file lifecycles, sheet template and PDF, sheet reader, scan, results, dashboard, demo data) |
 | Camera | `expo-camera` 57 | Implemented |
 | OMR | The project's own TypeScript image processing, on-device. No OpenCV | Implemented |
 | Scan images | `expo-image-manipulator` 57 to resize the photo; `fflate` 0.8 for the project's own PNG reader and writer; `expo-file-system` 57 | Implemented |
@@ -224,13 +224,15 @@ src/
     answer-keys/                        domain, application, infrastructure, presentation
     scan/                               domain, application, infrastructure, presentation
     results/                            domain, application, infrastructure, presentation
+    dashboard/                          domain, application, infrastructure, presentation (Home)
     demo-data/                          domain, application, infrastructure, presentation (development aid)
-    dashboard/, settings/               presentation
+    settings/                           presentation
   global.css                            Tailwind layers and theme tokens
 scripts/generate-answer-sheet.mjs       Writes an answer sheet PDF on the computer, for inspection
 tests/database/                         Node tests for schema, migrations, repositories, use cases, CSV, files
 tests/scan/                             Node tests for the sheet template and PDF, the reader, and the scan use cases
 tests/results/                          Node tests for migration 7, the list, filters, details, image store, and deletion
+tests/dashboard/                        Node tests for Home's counts, local day, recent lists, links, and Continue scanning
 tests/demo-data/                        Node tests for adding and removing the demo data
 ```
 
@@ -416,7 +418,7 @@ Inspected 2026-10-02.
 | Expo project | Implemented. Name "Answer Checker", slug `answer-checker`, scheme `answerchecker`. Managed/CNG: no `android/` or `ios/` folders |
 | Navigation | Implemented and verified. Bottom tabs: `/`, `/keys`, `/scan`, `/students`, `/results`. Secondary screens opened from Home → More, with Back and Home still selected: `/classes`, `/subjects`, `/settings`. No drawer or sidebar, and no `/exams` route |
 | Design system | Implemented and verified. Light and dark tokens, selective glass surfaces. Live blur is off on Android |
-| Home dashboard | Implemented and verified. Shortcuts, static empty states, and the More list; it reads no data yet |
+| Home dashboard | Implemented and verified. Real counts, Scanned today, recent Results and Answer Keys, Continue scanning, quick actions that open the create forms, and the More list. Read again on every visit; no static or sample values |
 | SQLite database | Implemented. `answer-checker.db`, WAL, foreign keys on, `STRICT` tables, `PRAGMA user_version` = 7 |
 | Migration 1 (base schema) | Verified on an Android 14 emulator and on a physical phone |
 | Migration 2 (`class_subjects`) | Has run on a physical phone |
@@ -438,21 +440,21 @@ Inspected 2026-10-02.
 | Results | Implemented and verified: list, search, filters, attempts, details, stored-scan viewer, permanent deletion with its answers, scan record, and image |
 | Permanent deletion | Implemented for Subjects, Classes, assignments, Students, Answer Keys, and Results |
 | Demo data | Implemented. Settings, development builds only: adds and removes a fixed set of made-up records |
-| Repositories and use cases | Subjects, Classes, Subject-to-Class assignments, Students, Answer Keys, Scan, Results, demo data |
+| Repositories and use cases | Subjects, Classes, Subject-to-Class assignments, Students, Answer Keys, Scan, Results, dashboard, demo data |
 | Backend | None. No server code, no network requests |
 | Supabase, MongoDB | Not installed. Excluded from the architecture |
 | Authentication, synchronization | None. Excluded from the architecture |
-| Automated tests | 457 tests in `tests/database/`, `tests/scan/`, `tests/results/`, and `tests/demo-data/`, run by `npm run test:db`, all passing. No UI tests |
+| Automated tests | 497 tests in `tests/database/`, `tests/scan/`, `tests/results/`, `tests/dashboard/`, and `tests/demo-data/`, run by `npm run test:db`, all passing. No UI tests |
 | App icons and splash | Still the Expo template artwork |
 | Native identifiers | `android.package` and `ios.bundleIdentifier` not set |
 
-Verification performed on the review date: `npm run test:db` (457 pass), `tsc --noEmit`, ESLint, `expo-doctor` (21 of 21), React Native Reusables `doctor`, and JavaScript bundle exports for web and Android all pass.
+Verification performed on the review date: `npm run test:db` (497 pass), `tsc --noEmit`, ESLint, `expo-doctor` (21 of 21), React Native Reusables `doctor`, and JavaScript bundle exports for web and Android all pass.
 
 The Node tests prove the SQL, the migrations and every upgrade path, the repositories, the use cases, the CSV reader, the roster-file and scan-file lifecycles and the image handling of Result deletion (with a fake file system), the sheet template and PDF for every question count, and the sheet reader on generated pictures of sheets. They do not prove `expo-sqlite`, the file picker, the camera, the reader on photos of printed sheets, or the UI on a device; the acceptance passes on the phone do that for the features marked verified.
 
 "Verified" in this document rests on the project owner's acceptance on a physical Android phone. TalkBack and raised font sizes have not been systematically checked.
 
-Web is a preview of the phone app only. In a browser the app is held to a 480-point column; there is no desktop or tablet layout. The database provider is a pass-through there, and the Subjects, Classes, Students, Answer Keys, Scan, and Results screens show "Only on the phone" with no Add or camera action.
+Web is a preview of the phone app only. In a browser the app is held to a 480-point column; there is no desktop or tablet layout. The database provider is a pass-through there, and the Subjects, Classes, Students, Answer Keys, Scan, and Results screens show "Only on the phone" with no Add or camera action, and Home shows its actions with "Only on the phone" in place of the numbers.
 
 ## Known Mismatches
 
@@ -465,7 +467,8 @@ The exam-versus-answer-key mismatches recorded earlier are resolved: migration 4
 | Scan viewer | The enlarged view is a fixed size with scrolling; there is no pinch zoom |
 | Results search and letter case | Letters outside ASCII are matched as typed, in lower case, and in upper case. A mixed-case variant such as "pEÑa" may not match |
 | Results filters | Only records that have a Result are offered |
-| Home | "Recent results" still shows fixed text, not real activity |
+| Home create actions | "Create answer key" opens Answer Keys without the form while no Subject exists, and "Add student" opens Students without the form while no Class exists; those screens explain what is missing |
+| Home recent rows | A long name is cut to one line |
 | Long Answer Keys | A key may have up to 200 questions, but one sheet holds 100. A longer key cannot be scanned |
 | Reader calibration | The reader's thresholds are initial values; see OMR Overview |
 | Create answer key from Scan | The action in the empty Answer Key picker opens the Answer Keys screen, not the form itself |
@@ -483,7 +486,7 @@ The exam-versus-answer-key mismatches recorded earlier are resolved: migration 4
 | 4 | Answer Keys and the schema and terminology migration | Implemented and verified |
 | 5 | Scan: generated answer sheet, camera, on-device reading, review, scoring, saving | Implemented and verified |
 | 6 | Results and permanent result and image deletion | Implemented and verified |
-| 7 | Home integration with real data | Planned |
+| 7 | Home integration with real data | Implemented and verified |
 | 8 | Settings, accessibility, and final device testing | Planned |
 
 ## Future Features

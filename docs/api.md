@@ -26,8 +26,9 @@ This document describes the application's internal contracts: the boundaries bet
 | Subject-to-Class assignments | `listSubjectsForClass(classId)`, `listClassesForSubject(subjectId)`, `isSubjectAssignedToClass(classId, subjectId)`, `assignSubjectToClass(classId, subjectId)`, `removeSubjectFromClass(classId, subjectId)`, `replaceSubjectsForClass(classId, subjectIds)`, `countSubjectsByClass()`, `countClassesBySubject()` | Implemented |
 | Students | `listStudents({ classId, search })`, `getStudent(id)`, `addStudent(input)`, `updateStudent(id, input)`, `deleteStudent(id)`, `pickRoster()`, `prepareRoster(fileName, text)`, `importStudents(inputs)` | Implemented and verified |
 | Answer Keys | `listAnswerKeys({ subjectId, search })`, `getAnswerKey(id)`, `createAnswerKey(input)`, `updateAnswerKey(id, input)`, `draftDuplicate(id)`, `duplicateAnswerKey(id, name?)`, `hasResults(id)`, `countResults(id)`, `deleteAnswerKey(id)` | Implemented and verified |
-| Scan | `listOptions(selection)`, `classIdsOfSubject(subjectId)`, `validateSelection(selection)`, `previousAttempts(selection)`, `readCapture(captureUri, selection)`, `discardCapture(captureUri)`, `discardDraft(draft)`, `saveResult(draft, review, { confirmDuplicate })`, `cleanUpScanFiles()`, `sharePrintableSheet(questionCount)`, `imageUri(path)` | Implemented and verified |
+| Scan | `listOptions(selection)`, `classIdsOfSubject(subjectId)`, `validateSelection(selection)`, `previousAttempts(selection)`, `resumeSession({ subjectId, answerKeyId, classId })`, `readCapture(captureUri, selection)`, `discardCapture(captureUri)`, `discardDraft(draft)`, `saveResult(draft, review, { confirmDuplicate })`, `cleanUpScanFiles()`, `sharePrintableSheet(questionCount)`, `imageUri(path)` | Implemented and verified |
 | Results | `listResults({ filter, search, after, limit })`, `countResults(filter, search)`, `listFilterLinks()`, `getResult(id)`, `deleteResult(id)`, `settleInterruptedDeletions()` | Implemented and verified |
+| Dashboard (Home) | `getDashboard()` | Implemented and verified |
 | Demo data (development builds) | `hasDemoData()`, `addDemoData()`, `removeDemoData()` | Implemented |
 
 All delete operations are permanent deletions as defined in the [Permanent Deletion Contract](#permanent-deletion-contract).
@@ -294,6 +295,7 @@ A selection is `{ subjectId, answerKeyId, classId, studentId }`, each an ID or n
 | `classIdsOfSubject(subjectId)` | The IDs of the Classes a Subject is taught to, for `selectSubject` |
 | `validateSelection(selection)` | Checks the four choices against the database and returns the records they name. Throws `ScanSelectionError` |
 | `previousAttempts(selection)` | Earlier Results of the chosen Student with the chosen Answer Key, newest first |
+| `resumeSession({ subjectId, answerKeyId, classId })` | The selection to continue an earlier session with, and no Student. Returned only when the Subject exists, the Answer Key belongs to it and fits one sheet, and the Class is still assigned to the Subject; otherwise the empty selection. Never throws |
 
 `ScanSelectionError` (`VALIDATION_ERROR`) carries one `problem`: `INCOMPLETE`, `SUBJECT_MISSING`, `ANSWER_KEY_MISSING`, `ANSWER_KEY_NOT_OF_SUBJECT`, `ANSWER_KEY_TOO_LONG` (more than 100 questions), `CLASS_MISSING`, `CLASS_NOT_ASSIGNED`, `STUDENT_MISSING`, or `STUDENT_NOT_IN_CLASS`.
 
@@ -456,6 +458,45 @@ Rules:
 - Only the stored path `scans/<name>.png` is accepted as a scan image. No image bytes are ever read into the database or by the list.
 
 Ports: `ResultsRepository` (`list`, `count`, `listLinks`, `getById`, `delete`, `listImagePaths`) and `ResultImageStore` (`displayUri`, `stage`, `restore`, `discard`, `settleStaged`).
+
+## Dashboard Contract
+
+Implemented and verified on a physical Android phone. Feature `features/dashboard`: a read model for Home alone. It writes nothing.
+
+`getDashboard()` returns:
+
+```text
+{
+  counts:           { students, classes, answerKeys, results, scannedToday } | null
+  recentResults:    [{ id, studentName, studentNumber, answerKeyName, score, total, capturedAt, attempt: { number, count } }] | null
+  recentAnswerKeys: [{ id, name, subjectName, questionCount, updatedAt }] | null
+  lastScan:         { subjectId, subjectName, answerKeyId, answerKeyName, classId, className } | null
+  isIncomplete:     boolean
+}
+```
+
+- It never throws. A part that could not be read is null and `isIncomplete` is true; `lastScan` is also null when no Result exists.
+- `DashboardRepository` has one method per part: `counts(today)`, `recentResults(limit)`, `recentAnswerKeys(limit)`, `lastScan()`. Each is one statement, so a reading is four statements however much is stored. Each can fail with `DATABASE_ERROR`.
+- Counts are aggregates computed by SQLite. No list is loaded to be counted or cut down. Answers and images are never read.
+- `scannedToday` counts Results with `captured_at` from the start of the phone's local calendar day (included) to the start of the next (not included). `localDayRange(now)` gives those two local midnights as UTC ISO-8601 strings; stored timestamps stay UTC.
+- Recent Results: at most 3, by capture time, then save time, then ID, all descending, with the names stored with each Result.
+- Recent Answer Keys: at most 3, by `updated_at`, then `created_at`, then ID, all descending, with the Subject's current name.
+- `lastScan` is taken from the newest Result: its Answer Key, that key's Subject, and the Class of the scan, named as they are called now.
+- No migration or index was added. The newest Results and the count for today are read through `idx_results_captured_at`.
+
+### Opening a screen with something to do
+
+Home tells another screen what to open through a one-time, in-memory intent (`core/presentation/navigation/screen-intent.ts`): `requestIntent(route, intent)` before navigating, `takeIntent(route)` when the target is shown and its data is loaded. An intent is taken once; nothing is stored.
+
+| Route | Intent | Effect |
+| --- | --- | --- |
+| `/keys` | `{ type: 'create' }` | Opens the Answer Key form, when a Subject exists |
+| `/keys` | `{ type: 'view', answerKeyId }` | Opens that Answer Key |
+| `/students` | `{ type: 'add' }` | Opens the Student form, when a Class exists |
+| `/results` | `{ type: 'open', resultId }` | Opens that Result |
+| `/scan` | `{ type: 'continue', subjectId, answerKeyId, classId }` | Passed to `resumeSession` |
+
+Route parameters are not used for this: screens stay mounted in the tab shell, so a parameter would act again on every later visit.
 
 ## Demo Data Contract
 

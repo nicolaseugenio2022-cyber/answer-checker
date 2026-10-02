@@ -4,7 +4,7 @@ Last reviewed: 2026-10-02
 
 This document records the authoritative product and architecture decisions for the Offline Answer Sheet Scanner. Developers and AI coding agents must read it before changing the project.
 
-> **Implementation status at time of writing:** the app shell, the local SQLite database (schema version 7), Subjects, Classes, Subject-to-Class assignments, Students with CSV roster import, Answer Keys, Scan (printable answer sheet, camera capture, on-device reading, review, scoring, and saving a Result), and Results (list, search, filters, details, stored-scan viewing, permanent deletion) exist. Home does not show real activity yet. Unless a row or sentence says "Implemented", everything below is a **target decision**, not a description of working software. See [project.md](./project.md#current-implementation-status).
+> **Implementation status at time of writing:** the app shell, the local SQLite database (schema version 7), Subjects, Classes, Subject-to-Class assignments, Students with CSV roster import, Answer Keys, Scan (printable answer sheet, camera capture, on-device reading, review, scoring, and saving a Result), Results (list, search, filters, details, stored-scan viewing, permanent deletion), and a Home dashboard that reads real counts and recent activity exist. Unless a row or sentence says "Implemented", everything below is a **target decision**, not a description of working software. See [project.md](./project.md#current-implementation-status).
 
 ## Status Vocabulary
 
@@ -72,7 +72,7 @@ This is not a Next.js application and not a browser-first React application. The
 - Pink is the product's identity color on a neutral base. It marks primary actions, the selected tab, focus rings, icon plates, section accents, selected checkboxes, and success notices. Surfaces and body text stay neutral.
 - All colors are semantic tokens defined in `src/global.css` and mirrored in `src/core/presentation/lib/theme.ts`. Do not hard-code colors in components. Change both files together.
 - Dark mode is a plum-tinted near-black, not pure black. Surfaces step up in lightness (background, card, popover) so layers stay distinguishable, borders are visible, and muted text stays readable. Every text pair must keep at least 4.5:1 contrast in both themes.
-- Glass is used selectively: the bottom tab bar, the Home header control, quick actions, the Activity panel, list-state panels, and the in-app notice. Glass means the `glass` token at partial opacity plus a thin edge. Do not put glass inside glass, and do not apply it to every surface.
+- Glass is used selectively: the bottom tab bar, the Home header control, quick actions, the overview cards, list-state panels, and the in-app notice. Glass means the `glass` token at partial opacity plus a thin edge. Do not put glass inside glass, and do not apply it to every surface.
 - Only the tab bar uses a live blur (`expo-blur`), and only on iOS and the web preview. Android uses a nearly opaque surface instead, for performance and because the Android blur path is unverified on a device. Content must stay readable with blur off.
 - The product is designed for phones, Android first. There is no desktop or tablet layout, no sidebar, and no drawer. Web exists only to preview the phone UI and is held to a phone-width column. Do not design hover-dependent or mouse-specific behavior. When web and a physical Android device differ, the device is the authority.
 - The Home dashboard shows real data or a truthful empty state with a next action. Never fake statistics, records, or activity. The one exception is the demo data a developer adds deliberately from Settings in a development build: made-up records whose names start with "Demo", removable in one action, and never offered in a release build.
@@ -105,6 +105,7 @@ Home → More → Subjects
 Home → More → Settings
 ```
 
+- Home also opens Classes from its overview card and Settings from its header button. These are the same secondary screens, opened from Home.
 - A secondary screen keeps the bottom bar visible, shows a compact header with a Back action, and leaves **Home as the selected tab**. The header Back action and the Android back button return to the screen it was opened from, which is Home.
 - One exception: when no Subject exists, the Answer Keys screen offers an "Open Subjects" button, because an Answer Key needs a Subject. Back from Subjects then returns to Answer Keys.
 - The bar is a floating glass capsule with side margins, sitting above the bottom safe-area inset, with a visible label under every icon. The selected tab's icon sits in a raised pink circle that overlaps the capsule's top edge. The circle rises in with a short fade; it does not slide between tabs, and the animation is skipped when the system asks for reduced motion. Tab positions and touch areas never move.
@@ -112,6 +113,24 @@ Home → More → Settings
 - Exactly one tab looks selected. Scan is the central tab and is styled like every other tab when it is not selected; it is a normal tab, not a floating button.
 - The selected tab is marked by position (the raised circle), shape, and label weight as well as color.
 - The destination list lives in `src/core/presentation/navigation/destinations.ts`.
+
+## Home Truth
+
+Binding product decision. Implemented and verified on a physical Android phone (accepted by the project owner on 2026-10-03).
+
+Home is the way into every workflow, with a few real numbers. It is not an analytics dashboard.
+
+- Everything Home shows is read from the local database each time Home is shown. There are no sample, static, or placeholder numbers. A value still being read is a neutral placeholder; a real zero is shown as zero.
+- Header: the app name, a greeting for the time of day, and the Settings button. There is no "Works offline" label on Home.
+- One primary action: **Scan answer sheet**. Secondary actions: Create answer key (opens the form), Add student (opens the form), View results.
+- **Continue scanning** appears once a Result exists. It starts a scan session with the Subject, Answer Key, and Class of the newest Result, after checking them against the database again, and never with a Student: the Teacher chooses the next Student. If the three no longer fit together, Scan starts empty.
+- Overview: counts of Students, Classes, Answer Keys, and Results, each opening its screen, and **Scanned today**: the Results whose photo was taken during the phone's current local calendar day.
+- Recent results: at most three, newest first, with the names they were saved under, the score as correct over total, the capture time, and the attempt when there is more than one. A row opens that Result.
+- Recent answer keys: at most three, by when they were created or last changed. A row opens that Answer Key.
+- More: Classes, Subjects, Settings.
+- There is no "Needs review" section. A scan cannot be saved while a question is unresolved, so nothing ever waits for review.
+- No averages, charts, progress rings, or pass and fail: no passing mark is defined.
+- If part of the data cannot be read, the rest is shown with one inline "Try again", and every action still works.
 
 ## Subject and Class Truth
 
@@ -393,9 +412,9 @@ Layers that exist today:
 | Location | Layers present |
 | --- | --- |
 | `src/core` | `domain`, `application`, `infrastructure/database`, `presentation` |
-| `features/subjects`, `classes`, `students`, `answer-keys`, `scan`, `results`, `demo-data` | `domain`, `application`, `infrastructure`, `presentation` |
+| `features/subjects`, `classes`, `students`, `answer-keys`, `scan`, `results`, `dashboard`, `demo-data` | `domain`, `application`, `infrastructure`, `presentation` |
 | `features/class-subjects` | `application`, `infrastructure`, `presentation` (it has no entity of its own) |
-| `features/dashboard`, `settings` | `presentation` only |
+| `features/settings` | `presentation` only |
 
 ## Offline Truth
 

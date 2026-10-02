@@ -14,9 +14,9 @@ flowchart TD
         ROOT["src/app/_layout.tsx: composition root"]
         UI["Presentation: Home, Answer Keys, Scan, Students, Results, Subjects, Classes, Settings"]
         CAM["Presentation: camera capture, expo-camera"]
-        UC["Application: subject, class, class-subject, student, answer key, scan, results, and demo-data use cases"]
+        UC["Application: subject, class, class-subject, student, answer key, scan, results, dashboard, and demo-data use cases"]
         DOMAIN["Domain: Subject, SchoolClass, Student, AnswerKey, roster and CSV rules, sheet template and PDF, detection, scoring"]
-        REPO["Infrastructure: SQLite repositories"]
+        REPO["Infrastructure: SQLite repositories and the dashboard read model"]
         FILES["Infrastructure: roster file picker"]
         OMR["Infrastructure: sheet reader in TypeScript, PNG codec"]
         IMAGES["Infrastructure: scan image store, result image store, printable sheet sharing"]
@@ -46,7 +46,7 @@ flowchart TD
 
 ## Target Architecture
 
-The implemented architecture above is the target architecture: every layer and every local component it names exists. What remains is Home showing real activity, which adds no new component.
+The implemented architecture above is the target architecture: every layer and every local component it names exists.
 
 ## Clean Architecture Layers
 
@@ -84,6 +84,12 @@ flowchart TD
     end
 
     HOME --> MORE["More list on Home"]
+    HOME -- "Scan answer sheet, Continue scanning" --> SCAN
+    HOME -- "Create answer key, recent answer key, Answer Keys count" --> KEYS
+    HOME -- "Add student, Students count" --> STUDENTS
+    HOME -- "View results, recent result, Results count" --> RESULTS
+    HOME -- "Classes count" --> CLASSES
+    HOME -- "Header button" --> SETTINGS
     MORE --> CLASSES["Classes"]
     MORE --> SUBJECTS["Subjects"]
     MORE --> SETTINGS["Settings"]
@@ -418,6 +424,33 @@ sequenceDiagram
 | Class | Students of the class, and Results scanned under it |
 | Student | Results of the student |
 | Answer Key | Results scored with the key |
+
+## Home Dashboard
+
+Implemented and verified on a physical Android phone.
+
+```mermaid
+sequenceDiagram
+    actor Teacher
+    participant UI as Home screen
+    participant UC as Dashboard use case
+    participant DB as Local SQLite database
+    participant Next as Target screen
+
+    Teacher->>UI: Open Home, or return to it
+    UI->>UC: getDashboard()
+    UC->>DB: Counts, with the local day as two UTC instants
+    UC->>DB: Three newest results
+    UC->>DB: Three most recently changed answer keys
+    UC->>DB: What the newest result was scanned with
+    UC-->>UI: Each part, or null where it could not be read
+    UI-->>Teacher: Counts, Scanned today, recent lists, Continue scanning
+    Teacher->>UI: Tap a recent result, a create action, or Continue scanning
+    UI->>Next: Leave a one-time intent, then navigate
+    Next->>Next: Take the intent once its data is loaded
+    Next-->>Teacher: The result, the form, or the scan session, already open
+    Note over UI,DB: Read again on every visit, never on a timer. Only the newest reading is kept.
+```
 
 ## Results Browsing
 

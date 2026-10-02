@@ -24,8 +24,9 @@ The app's operations are in-process TypeScript use cases that call local SQLite 
 | Subject-to-Class assignments | `listSubjectsForClass`, `listClassesForSubject`, `isSubjectAssignedToClass`, `assignSubjectToClass`, `removeSubjectFromClass`, `replaceSubjectsForClass`, `countSubjectsByClass`, `countClassesBySubject` | Implemented |
 | Students | `listStudents`, `getStudent`, `addStudent`, `updateStudent`, `deleteStudent`, `pickRoster`, `prepareRoster`, `importStudents` | Implemented and verified on a physical Android phone |
 | Answer Keys | `listAnswerKeys`, `getAnswerKey`, `createAnswerKey`, `updateAnswerKey`, `draftDuplicate`, `duplicateAnswerKey`, `hasResults`, `countResults`, `deleteAnswerKey` | Implemented and verified on a physical Android phone |
-| Scan | `listOptions`, `classIdsOfSubject`, `validateSelection`, `previousAttempts`, `readCapture`, `discardCapture`, `discardDraft`, `saveResult`, `cleanUpScanFiles`, `sharePrintableSheet` | Implemented and verified on a physical Android phone |
+| Scan | `listOptions`, `classIdsOfSubject`, `validateSelection`, `previousAttempts`, `resumeSession`, `readCapture`, `discardCapture`, `discardDraft`, `saveResult`, `cleanUpScanFiles`, `sharePrintableSheet` | Implemented and verified on a physical Android phone |
 | Results | `listResults`, `countResults`, `listFilterLinks`, `getResult`, `deleteResult`, `settleInterruptedDeletions` | Implemented and verified on a physical Android phone |
+| Dashboard (Home) | `getDashboard` | Implemented and verified on a physical Android phone |
 | Demo data | `hasDemoData`, `addDemoData`, `removeDemoData` | Implemented; offered in development builds only |
 
 ## App Screens
