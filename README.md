@@ -4,7 +4,11 @@ Offline-only mobile app for Teachers to check shaded multiple-choice answer shee
 
 Everything runs on the phone. Data is kept in a local SQLite database stored on the Teacher's device. There is no backend, no cloud database, no account, and no synchronization, so the app never needs the internet. Data is not shared between phones, and uninstalling the app or clearing its data removes it.
 
-**Status:** the Teacher can manage Subjects, Classes, and Students, choose which Subjects are taught to each Class, import a class roster from a CSV file, create Answer Keys, print an answer sheet made for the exact number of questions of an Answer Key, scan it (photograph the sheet, review what was read, and save the scored Result), and browse the saved Results: search, filter, open one to see every answer and the stored scan, and delete one permanently. Home shows real counts and recent activity from the database. Everything is stored in the local SQLite database (schema version 7). In a development build, Settings can add and remove a set of demo records. See [docs/project.md](docs/project.md#current-implementation-status).
+**Status:** the Teacher can manage Subjects, Classes, and Students, choose which Subjects are taught to each Class, import a class roster from a CSV file, create Answer Keys, print an answer sheet made for the exact number of questions of an Answer Key, scan it (photograph the sheet, review what was read, and save the scored Result), and browse the saved Results: search, filter, open one to see every answer and the stored scan, and delete one permanently. Home shows real counts and recent activity from the database. Settings holds the appearance (System, Light, Dark), an optional display name, the camera permission status, what is stored, cleanup of temporary files, and the permanent deletion of all academic data. Everything is stored in the local SQLite database (schema version 8). In a development build, Settings can add and remove a set of demo records.
+
+Stages 1 to 8 were accepted on a physical Android phone. A standalone build is blocked until the owner sets the Android package name.
+
+The phone must be able to reach the computer on port 8081 over the same Wi-Fi. If Expo Go reports "Failed to download remote update", open `http://<computer's Wi-Fi address>:8081/status` in the phone's browser: if that does not load, the network keeps its devices apart, and the phone's own hotspot works instead. See [docs/project.md](docs/project.md#current-implementation-status).
 
 ## Get started
 
@@ -20,6 +24,7 @@ SQLite, the file picker, and the camera need native code, so use a phone or an e
 ```bash
 npm run test:db
 npm run sheet -- 10        # writes the 10-question answer sheet PDF to .expo/sheets/
+npm run brand              # redraws the icon, adaptive icon, splash image, and favicon
 npx expo-doctor@latest
 npx tsc --noEmit
 npm run lint

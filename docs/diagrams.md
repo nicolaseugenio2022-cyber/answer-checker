@@ -1,6 +1,6 @@
 # Diagrams
 
-Last reviewed: 2026-10-02
+Last reviewed: 2026-10-03
 
 Each diagram is marked **Implemented** or **Planned**. The application is offline-only: every component in every diagram runs on the Teacher's device, and there is no backend, cloud database, or synchronization. Status details are in [project.md](./project.md#current-implementation-status). Decisions are governed by [source-of-truth.md](./source-of-truth.md).
 
@@ -14,14 +14,14 @@ flowchart TD
         ROOT["src/app/_layout.tsx: composition root"]
         UI["Presentation: Home, Answer Keys, Scan, Students, Results, Subjects, Classes, Settings"]
         CAM["Presentation: camera capture, expo-camera"]
-        UC["Application: subject, class, class-subject, student, answer key, scan, results, dashboard, and demo-data use cases"]
+        UC["Application: subject, class, class-subject, student, answer key, scan, results, dashboard, settings, and demo-data use cases"]
         DOMAIN["Domain: Subject, SchoolClass, Student, AnswerKey, roster and CSV rules, sheet template and PDF, detection, scoring"]
         REPO["Infrastructure: SQLite repositories and the dashboard read model"]
         FILES["Infrastructure: roster file picker"]
         OMR["Infrastructure: sheet reader in TypeScript, PNG codec"]
-        IMAGES["Infrastructure: scan image store, result image store, printable sheet sharing"]
+        IMAGES["Infrastructure: scan image store, result image store, app files, printable sheet sharing"]
         CORE["Infrastructure: database provider, migrations, runInTransaction"]
-        DB[("answer-checker.db - schema version 7")]
+        DB[("answer-checker.db - schema version 8")]
         CSV["CSV file chosen by the Teacher"]
         STORE["App-private files: cache, documents/scans, documents/scans-deleting"]
     end
@@ -47,6 +47,47 @@ flowchart TD
 ## Target Architecture
 
 The implemented architecture above is the target architecture: every layer and every local component it names exists.
+
+## Start-up
+
+Implemented and verified on a physical Android phone. The failed and stalled branches are covered by tests.
+
+```mermaid
+flowchart TD
+    A["App opens: native splash screen, light or dark"] --> B["JavaScript starts; splash screen is held"]
+    B --> C["Root layout mounts"]
+    C --> D["Database opened"]
+    D --> E{"Pragmas and migrations succeed?"}
+    E -- No --> X["Error boundary: plain message, Try again. Splash screen hidden"]
+    E -- Yes --> F["Providers build the use cases"]
+    F --> G["First screen mounts, still covered"]
+    G --> H["Preferences read, asynchronously"]
+    H --> I["Stored light or dark theme applied; system needs nothing"]
+    I --> J["One frame drawn, splash screen hidden"]
+    B -. "12 s without a first screen" .-> S["Taking long to start: steps reached, Try again. Start continues underneath"]
+    B -. "20 s, whatever happened" .-> L["Splash screen hidden by the last-resort timer"]
+    X -- "Try again" --> C
+    S -- "Try again" --> C
+```
+
+## Loading Feedback
+
+Implemented and verified on a physical Android phone.
+
+```mermaid
+flowchart TD
+    A["A screen starts its first read"] --> B{"Finished within 150 ms?"}
+    B -- Yes --> C["Content, or the empty state. No skeleton was shown"]
+    B -- No --> D["Skeleton shaped like the content"]
+    D --> E{"Read finished?"}
+    E -- No --> D
+    E -- Yes --> F{"Skeleton shown for at least 350 ms?"}
+    F -- No --> D
+    F -- Yes --> C
+    R["A screen with content is read again"] --> T{"Finished within 150 ms?"}
+    T -- Yes --> K["Content updated, nothing else shown"]
+    T -- No --> U["Content stays; small spinner in the header until done"]
+```
 
 ## Clean Architecture Layers
 
@@ -116,13 +157,17 @@ flowchart TD
     RDETAIL --> RDELETE["Delete permanently: confirmation"]
     RESULTS -- "Scan an answer sheet, only while no result exists" --> SCAN
     SETTINGS --> DEMO["Demo data: add or remove, development builds only"]
+    SETTINGS --> CLEAN["Clean temporary files"]
+    SETTINGS --> WIPE["Delete all academic data: summary, then typed phrase"]
+    WIPE -- "after deletion" --> HOME
+    SETTINGS -- "Open Scan" --> SCAN
 ```
 
 The pickers, the camera, the review, the Result details, and the scan viewer are sheets and full-screen dialogs over their screen, not routes.
 
 ## Implemented SQLite Schema
 
-Implemented. This is the physical schema after migrations 1 to 7 (`PRAGMA user_version` = 7). All tables are `STRICT`. All `id` columns are device-generated UUIDs. There is no exam table: migration 4 converted `exams`, `exam_questions`, and the old per-question `answer_keys` into the tables below.
+Implemented. This is the physical schema after migrations 1 to 8 (`PRAGMA user_version` = 8). All tables are `STRICT`. All `id` columns are device-generated UUIDs. There is no exam table: migration 4 converted `exams`, `exam_questions`, and the old per-question `answer_keys` into the tables below.
 
 ```mermaid
 erDiagram
@@ -209,6 +254,10 @@ erDiagram
         text image_path
         text scanned_at
     }
+    APP_SETTINGS {
+        text key PK
+        text value
+    }
 ```
 
 Notes:
@@ -224,6 +273,7 @@ Notes:
 - `results.student_name`, `student_number`, `class_name`, `subject_name`, and `answer_key_name` are the names the Result was saved under. They are what a Result displays; the ID columns are what the filters and the delete rules use.
 - The Results list is read through the index on `(captured_at, created_at, id)`.
 - `results`, `student_answers`, and `scan_records` are written by Scan and read and deleted by Results. A saved row is never updated.
+- `app_settings` stands alone: it holds the app's own preferences (appearance, optional display name), references nothing, and is kept when all academic data is deleted.
 - There is no teacher, account, role, or synchronization table, and no soft-delete or archive column.
 
 ## Roster Import
@@ -424,6 +474,44 @@ sequenceDiagram
 | Class | Students of the class, and Results scanned under it |
 | Student | Results of the student |
 | Answer Key | Results scored with the key |
+
+## Delete All Academic Data
+
+Implemented and verified on a physical Android phone. The failure branches are covered by tests.
+
+```mermaid
+flowchart TD
+    A["Teacher taps Delete all academic data"] --> B{"Summary: counts, no cloud backup, cannot be undone"}
+    B -- Cancel --> Z["No change"]
+    B -- Continue --> C{"Typed phrase is exactly DELETE ALL DATA?"}
+    C -- "No: the delete button stays off" --> C
+    C -- Cancel --> Z
+    C -- Yes --> T["One transaction: delete every academic table, children first"]
+    T --> F{"Transaction commits?"}
+    F -- No --> R["Rolled back: every row and every file as before, show error"]
+    F -- Yes --> G["Remove scan images, staged files, and temporary files"]
+    G --> H["Confirmation, then Home with zero counts"]
+    G -. "a file cannot be removed" .-> L["It belongs to no record; the next cleanup removes it"]
+    H --> K["Kept: appearance, display name, schema and its version"]
+```
+
+## Temporary-File Cleanup
+
+Implemented and verified on a physical Android phone. The failure branches are covered by tests.
+
+```mermaid
+flowchart TD
+    A["Clean temporary files"] --> P{"Image paths of saved results read?"}
+    P -- No --> X["Nothing is cleaned, show error"]
+    P -- Yes --> L["List the app's own temporary folders"]
+    L --> S{"File kind"}
+    S -- "Capture, preview, resized copy, roster copy, sheet PDF" --> D["Delete"]
+    S -- "Image in scans that no result refers to" --> D
+    S -- "Staged image, result gone" --> D
+    S -- "Staged image, result still exists without its image" --> M["Move back to scans"]
+    S -- "Image of a saved result" --> K["Keep"]
+    D --> N["Notice: space freed"]
+```
 
 ## Home Dashboard
 

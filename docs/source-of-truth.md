@@ -1,10 +1,10 @@
 # Source of Truth
 
-Last reviewed: 2026-10-02
+Last reviewed: 2026-10-03
 
 This document records the authoritative product and architecture decisions for the Offline Answer Sheet Scanner. Developers and AI coding agents must read it before changing the project.
 
-> **Implementation status at time of writing:** the app shell, the local SQLite database (schema version 7), Subjects, Classes, Subject-to-Class assignments, Students with CSV roster import, Answer Keys, Scan (printable answer sheet, camera capture, on-device reading, review, scoring, and saving a Result), Results (list, search, filters, details, stored-scan viewing, permanent deletion), and a Home dashboard that reads real counts and recent activity exist. Unless a row or sentence says "Implemented", everything below is a **target decision**, not a description of working software. See [project.md](./project.md#current-implementation-status).
+> **Implementation status at time of writing:** the app shell, the local SQLite database (schema version 8), Settings with data management, Subjects, Classes, Subject-to-Class assignments, Students with CSV roster import, Answer Keys, Scan (printable answer sheet, camera capture, on-device reading, review, scoring, and saving a Result), Results (list, search, filters, details, stored-scan viewing, permanent deletion), and a Home dashboard that reads real counts and recent activity exist. Unless a row or sentence says "Implemented", everything below is a **target decision**, not a description of working software. See [project.md](./project.md#current-implementation-status).
 
 ## Status Vocabulary
 
@@ -17,6 +17,7 @@ Every feature in these documents carries one of these labels:
 | Planned | Approved, not built |
 | Optional/Future | Possible later; not approved for the initial product |
 | Excluded | Not part of the architecture; must not be built |
+| Blocked by an owner decision | Cannot be completed until the project owner decides something, such as the Android package name |
 
 ## Product Truth
 
@@ -48,7 +49,7 @@ Do not introduce RBAC. With a single role there is nothing to authorize between.
 | Mobile | React Native, Expo, TypeScript | Implemented |
 | Navigation | Expo Router, routes under `src/app` | Implemented |
 | UI | React Native Reusables, NativeWind, shadcn New York style, pink glass theme | Implemented |
-| Persistence | SQLite via `expo-sqlite`. Required; the only application database | Implemented (schema version 7) |
+| Persistence | SQLite via `expo-sqlite`. Required; the only application database | Implemented (schema version 8) |
 | Record IDs | UUIDs from `expo-crypto` (`randomUUID`) | Implemented |
 | Roster files | `expo-document-picker` to choose a CSV file, `expo-file-system` to read and delete its temporary copy. The CSV reader is the project's own code | Implemented |
 | Camera | `expo-camera`, on-device. Permission is asked only when the Teacher opens the camera | Implemented |
@@ -131,6 +132,83 @@ Home is the way into every workflow, with a few real numbers. It is not an analy
 - There is no "Needs review" section. A scan cannot be saved while a question is unresolved, so nothing ever waits for review.
 - No averages, charts, progress rings, or pass and fail: no passing mark is defined.
 - If part of the data cannot be read, the rest is shown with one inline "Try again", and every action still works.
+
+## Settings Truth
+
+Binding product decision. Implemented and verified on a physical Android phone (accepted by the project owner on 2026-10-03).
+
+Settings is a secondary screen opened from Home. It is never a bottom tab.
+
+### Appearance
+
+- Three choices: **System**, **Light**, **Dark**. System is the default and follows the phone, changing when the phone's theme changes.
+- The choice is stored on the device (`app_settings`) and is the only source of the theme. It is applied at once when chosen. At start it is applied while the splash screen still covers the app, so the app does not open in the other theme first.
+- The web preview applies the choice but does not remember it.
+
+### Display name
+
+- Optional. A name of at most 30 characters, stored only on the device, used only in the Home greeting ("Good morning, Alex"). Without it the greeting says "Teacher".
+- It is not an account or a profile. There is no school, email, password, or photo field, and none may be added without a new decision.
+
+### Camera permission
+
+- Settings shows the permission status (not requested, allowed, denied, denied and no longer asked) and never requests it. The phone asks only when the Teacher opens the camera in Scan.
+- "Open system settings" is offered only when the phone will not ask again.
+- The app requests the camera and nothing else: no microphone, location, contacts, media library, or broad storage access.
+
+### Local data and storage
+
+- Settings states: "Your academic data and scan images are stored locally on this device. The app does not require an internet connection or a cloud account."
+- It shows the real numbers of Students, Classes, Subjects, Answer Keys, and Results, and the approximate sizes of the stored scan images and of temporary files. No file location is shown.
+- It does not claim encryption. The data is in the app's private storage, protected by the operating system and the device lock, and not encrypted by the app.
+
+### Temporary-file cleanup
+
+- "Clean temporary files" removes only the app's own leftovers: abandoned captures, files made while reading a sheet, review previews, the copies the file picker made of imported rosters, generated answer-sheet files, files left by an interrupted deletion, and images no Result refers to.
+- It never removes a saved Result or its image, the Teacher's original roster file, or anything outside the app's own folders. An image that was set aside for a deletion that did not happen is given back to its Result.
+- It reports the space freed and can be run any number of times.
+
+### Delete all academic data
+
+- One action in a separate danger zone permanently deletes every Subject, assignment, Class, Student, Answer Key, Result, answer row, scan record, and stored scan image, and the app's temporary files.
+- It needs two confirmations: a summary of what will be removed, stating that there is no cloud backup and that it cannot be undone, then typing `DELETE ALL DATA` exactly. The delete button stays off until the phrase matches. Cancel comes first, and Android Back cancels.
+- The rows are deleted in one transaction, all or none; only then are the files removed. If the transaction fails, nothing is deleted. A file that cannot be removed afterwards belongs to no record and is removed by the next cleanup.
+- **Rule for preferences:** the appearance and the display name are the app's own settings, not academic data, and are kept. The database schema and its version are kept; the app is empty and ready for new records.
+- Nothing outside the app's private folders is touched. No recovery copy, flag, or table exists.
+
+### About
+
+- App name, the version from the app's configuration (with a build number once one is set), and plain statements that the app works offline, has no account, and uses the camera only to photograph answer sheets.
+- The app makes no claim of compliance with any particular law.
+
+### Development-only sections
+
+In a development build Settings also shows three tools: demo data, a "Loading skeletons" control that holds every skeleton on screen for a chosen time, and "Timings" (start-up milestones and the time of each screen's first read on the device). A release build shows none of them and cannot turn them on.
+
+## Start-up and Loading Truth
+
+Binding. Implemented and verified on a physical Android phone (accepted by the project owner on 2026-10-03). The failure and stall screens below are covered by code and tests; they were not provoked on the phone.
+
+### Start-up
+
+- The native splash screen (the app's icon on a light or a dark background) stays up from the moment the app opens until the database is opened and migrated, the providers exist, the first screen is mounted, the stored preferences are read, and a stored light or dark theme is applied. The Teacher never sees a blank screen in between.
+- The splash screen can never stay up forever. It is hidden when the start finishes; when the start fails, by a plain message with "Try again"; after 12 seconds without a first screen, by a "taking long to start" screen that lists the steps reached and offers "Try again" while the start keeps going underneath; and after 20 seconds by a timer that does not depend on anything else.
+- If the local database cannot be opened, nothing is deleted. The message says so.
+- Rules that came out of a start that hung on the splash screen:
+  - The database is initialized once per start. Its initialization function never changes, so a re-render cannot reopen the database.
+  - The theme is never set while the database is being prepared. On Android setting it re-renders the whole app, which restarted the initialization.
+  - The database is never read synchronously.
+  - Importing a module does no work: no sheet is read, no PDF is built, and no file is opened until something asks for it.
+- No skeleton is shown before the app's code runs. While the bundle is still loading only the splash screen can be on screen.
+
+### Loading feedback
+
+- A first load that has nothing to show yet draws nothing for 150 milliseconds; a read of the local database is usually over by then. If it is still loading, a skeleton shaped like the coming content appears and then stays at least 350 milliseconds, so it never flickers.
+- Skeletons exist for Home, Subjects, Classes, Students, Answer Keys, Results, Result details, the Scan setup, and the Settings storage numbers. The Answer Key view has none: it opens with the key already loaded.
+- A screen that already shows content keeps it while it is read again. A small spinner in the header appears only if that takes longer than a moment.
+- An empty state is shown only after loading has finished.
+- Creating, saving, and deleting show a spinner in their button. Reading a sheet and importing a roster say what they are doing.
+- A skeleton is announced once to a screen reader as busy; its bars are decoration. It uses the theme's own colors and holds still when reduced motion is on.
 
 ## Subject and Class Truth
 
@@ -412,9 +490,8 @@ Layers that exist today:
 | Location | Layers present |
 | --- | --- |
 | `src/core` | `domain`, `application`, `infrastructure/database`, `presentation` |
-| `features/subjects`, `classes`, `students`, `answer-keys`, `scan`, `results`, `dashboard`, `demo-data` | `domain`, `application`, `infrastructure`, `presentation` |
+| `features/subjects`, `classes`, `students`, `answer-keys`, `scan`, `results`, `dashboard`, `settings`, `demo-data` | `domain`, `application`, `infrastructure`, `presentation` |
 | `features/class-subjects` | `application`, `infrastructure`, `presentation` (it has no entity of its own) |
-| `features/settings` | `presentation` only |
 
 ## Offline Truth
 
@@ -466,10 +543,11 @@ Implemented and verified on a physical Android phone.
 - Record IDs are UUIDs generated on the device, not auto-increment integers.
 - Timestamps are UTC ISO-8601 strings as `Date.prototype.toISOString()` produces them.
 - Tables are `STRICT`. Foreign-key enforcement is turned on, and verified, on every connection. Journaling is WAL.
-- Schema changes are made only through ordered, versioned migrations in `src/core/infrastructure/database/migrations.ts`, one file per migration. The schema version is stored in `PRAGMA user_version`. The latest version is **7**.
-- A migration that has run on a device is frozen. Migrations 1 to 7 have run on a physical Android phone; never edit them. Change the schema by appending migration 8.
+- Schema changes are made only through ordered, versioned migrations in `src/core/infrastructure/database/migrations.ts`, one file per migration. The schema version is stored in `PRAGMA user_version`. The latest version is **8**.
+- A migration that has run on a device is frozen. Migrations 1 to 8 have run on a physical Android phone; never edit them. Change the schema by appending migration 9.
 - The schema is the evidence of what is implemented. The implemented schema is drawn in [diagrams.md](./diagrams.md#implemented-sqlite-schema).
-- Do not add role, permission, account, teacher, or synchronization tables.
+- Do not add role, permission, account, teacher, or synchronization tables. `app_settings` is none of these: it holds the app's own named preferences (appearance, optional display name) and nothing academic.
+- **Operating-system backup.** The app itself makes no backup and no network request. Android's own app backup is left at its default, which is on: when the Teacher has Google backup enabled, the phone may include the app's database in it. Whether to turn that off (`android.allowBackup`) is an open owner decision, so these documents do not claim that data never leaves the device through the operating system.
 
 ## Deletion Truth
 
@@ -492,7 +570,7 @@ Permanent physical deletion is mandatory.
 - Deletion leaves nothing behind: no tombstone, no soft-deleted row, and no synchronization instruction.
 - Because there is no backup, a permanent deletion cannot be recovered.
 
-Implemented today: permanent deletion of Subjects, Classes, assignments, Students, Answer Keys, and Results.
+Implemented today: permanent deletion of Subjects, Classes, assignments, Students, Answer Keys, and Results, and of all academic data at once from Settings (see [Settings Truth](#settings-truth)).
 
 ## Excluded: Cloud and Synchronization
 
@@ -519,6 +597,26 @@ A manual backup/export and restore feature that works on local files is a possib
 - Scan images are kept to the minimum: the camera's photo is deleted as soon as the sheet is read or refused, and one flattened image is kept per saved Result, in the app's private storage, until that Result is deleted. Images never go to the device gallery.
 - The application talks to no service, so it holds no API keys, tokens, or credentials. None may be added.
 - Secrets must never be committed to source code.
+
+## Release Truth
+
+Nothing has been built for release, submitted, or signed. These are **blocked by an owner decision** and are deliberately unset:
+
+| Item | State |
+| --- | --- |
+| `android.package` | Not set. Needed for any standalone Android build |
+| `ios.bundleIdentifier` | Not set |
+| `android.versionCode`, `ios.buildNumber` | Not set; the app shows only the version (1.0.0) |
+| Copyright holder | `LICENSE` is still the Expo template's MIT text naming its authors; `package.json` names no license |
+| Android system backup | Default (allowed). See [Data Truth](#data-truth) |
+| Final brand approval | The icon and splash are the project's own artwork, generated by `npm run brand`; not reviewed as a trademark |
+
+Settled:
+
+- Name "Answer Checker", slug `answer-checker`, URL scheme `answerchecker`, portrait only, light and dark supported.
+- The only permission is the camera, with the text "Answer Checker uses the camera to photograph answer sheets. Photos stay on this phone." Audio recording is turned off in the camera plugin.
+- Everything runs in Expo Go. A standalone build needs the identifiers above; it needs no native code beyond the Expo modules already used.
+- `npm audit` reports findings in build tooling only (`uuid`, `node-forge`, `decode-uri-component`, reached through Expo's command-line and config tooling), none in code that runs in the app. The forced fix is breaking and must not be run.
 
 ## Documentation Precedence
 
@@ -563,3 +661,10 @@ If the implementation disagrees with the architecture documentation, **report th
 18. Do not reintroduce a fixed-size answer sheet, a bundled sheet file, or a fixed limit of 40 questions.
 19. Do not add any way to edit, rescore, or overwrite a saved Result.
 20. Do not show the demo data controls outside development builds.
+21. Do not add a second store for the theme or any other preference; `app_settings` is the one place.
+22. Do not request any permission other than the camera, and never request it from Settings.
+23. Do not invent release values that are the owner's to decide: the Android package name, the iOS bundle identifier, version codes, the copyright holder, or the backup setting.
+24. Do not run store submissions, paid or cloud builds, or create signing keys without explicit permission.
+25. Do not pass a function that changes between renders to the database provider, do not set the theme during database initialization, and do not read the database synchronously.
+26. Do not remove any of the ways the splash screen is hidden.
+27. Do not add another loading spinner or skeleton system; use the shared one.

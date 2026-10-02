@@ -1,6 +1,6 @@
 # Application API
 
-Last reviewed: 2026-10-02
+Last reviewed: 2026-10-03
 
 This document describes the application's internal contracts: the boundaries between UI, application use cases, the sheet reader, the camera, and local storage. The application is offline-only, so every contract here is an in-process contract on the device. There are no network routes; see [api-routes.md](./api-routes.md).
 
@@ -29,6 +29,7 @@ This document describes the application's internal contracts: the boundaries bet
 | Scan | `listOptions(selection)`, `classIdsOfSubject(subjectId)`, `validateSelection(selection)`, `previousAttempts(selection)`, `resumeSession({ subjectId, answerKeyId, classId })`, `readCapture(captureUri, selection)`, `discardCapture(captureUri)`, `discardDraft(draft)`, `saveResult(draft, review, { confirmDuplicate })`, `cleanUpScanFiles()`, `sharePrintableSheet(questionCount)`, `imageUri(path)` | Implemented and verified |
 | Results | `listResults({ filter, search, after, limit })`, `countResults(filter, search)`, `listFilterLinks()`, `getResult(id)`, `deleteResult(id)`, `settleInterruptedDeletions()` | Implemented and verified |
 | Dashboard (Home) | `getDashboard()` | Implemented and verified |
+| Settings | `getPreferences()`, `setAppearance(appearance)`, `setTeacherName(name)`, `getStorageSummary()`, `cleanTemporaryFiles()`, `deleteAllAcademicData(typedPhrase)` | Implemented and verified |
 | Demo data (development builds) | `hasDemoData()`, `addDemoData()`, `removeDemoData()` | Implemented |
 
 All delete operations are permanent deletions as defined in the [Permanent Deletion Contract](#permanent-deletion-contract).
@@ -60,6 +61,7 @@ Implemented in `src/core/infrastructure/database/`.
 | 4 | `0004-answer-keys.ts` | Replaces the exam model: creates `answer_keys` (per subject) and `answer_key_items`, renames `exam_results` to `results`, rebuilds `student_answers` and `scan_records`, and drops `exams`, `exam_questions`, and the old `answer_keys` | Has run on a physical phone, with no legacy rows to convert |
 | 5 | `0005-question-count-unbounded.ts` | Rebuilds `answer_keys`, `answer_key_items`, and `student_answers` so that `question_count` and `question_number` only have to be 1 or more. Rows are copied unchanged | Has run on a physical phone |
 | 6 | `0006-scan-results.ts` | Rebuilds `results` (adds `class_id`, `template_id`, `captured_at`; the index on answer key and student is no longer unique) and `student_answers` (`detected_state`, `detected_answer`, `final_answer`, `correct_answer`, `is_correct`, `manually_corrected`, `confidence`) | Has run on a physical phone, with no result rows to convert |
+| 8 | `0008-app-settings.ts` | Creates `app_settings` (`key` primary key, `value`): the app's own preferences. No existing table is touched | Has run on a physical phone |
 | 7 | `0007-result-snapshots.ts` | Rebuilds `results` to add `student_name`, `student_number`, `class_name`, `subject_name`, and `answer_key_name`, filled for existing rows from the records they point to. Adds `idx_results_captured_at`; `idx_results_created_at` is not recreated | Has run on a physical phone |
 
 Migration 4 converts legacy data instead of discarding it:
@@ -498,6 +500,46 @@ Home tells another screen what to open through a one-time, in-memory intent (`co
 
 Route parameters are not used for this: screens stay mounted in the tab shell, so a parameter would act again on every later visit.
 
+## Settings Contract
+
+Implemented and verified on a physical Android phone. Feature `features/settings`.
+
+| Operation | Behavior | Errors |
+| --- | --- | --- |
+| `getPreferences()` | `{ appearance, teacherName }`. `appearance` is `system`, `light`, or `dark`; anything else stored, or nothing, is `system`. `teacherName` is empty when not set | `DATABASE_ERROR` |
+| `setAppearance(appearance)` | Stores the choice | `DATABASE_ERROR` |
+| `setTeacherName(name)` | Stores the name trimmed, with runs of whitespace collapsed; an empty name clears it. At most 30 characters, counted as characters. Returns the stored name | `VALIDATION_ERROR` (`InvalidTeacherNameError`), `DATABASE_ERROR` |
+| `getStorageSummary()` | `{ counts: { students, classes, subjects, answerKeys, results }, scanImageBytes, temporaryBytes }`. Never throws: a part that cannot be read is null | None |
+| `cleanTemporaryFiles()` | Removes the app's own temporary files and returns the bytes freed. Idempotent | `FILE_ERROR` (`CleanupError`) |
+| `deleteAllAcademicData(typedPhrase)` | Permanently deletes all academic data and scan images. Returns `{ filesRemoved }` | `VALIDATION_ERROR` (`ConfirmationPhraseError`), `DATABASE_ERROR`; in both cases nothing was deleted |
+
+Preferences:
+
+- Stored in `app_settings` under the keys `appearance` and `teacher_name`, one row each, written with an upsert.
+- The preferences are read once at start with an ordinary asynchronous query (`PreferencesProvider`, which reports `isLoaded`). A failed read leaves the defaults and still counts as loaded, so the start never waits on it forever.
+- The theme is applied through NativeWind's color scheme. No other store holds it. There is no synchronous database read.
+
+Temporary files, through the `AppFiles` port:
+
+- The store works from a fixed list of the app's own folders and removes only files that a listing of one of them returned. No path from anywhere else can reach a delete.
+- Removed: files directly inside the cache folders `scan-previews/`, `Camera/`, `ImageManipulator/`, and `DocumentPicker/`; files directly in the cache named `Answer sheet - *.pdf`; files in `scans-deleting/`; and images in `scans/` that no scan record refers to.
+- Never removed: an image a scan record refers to, anything in a sub-folder, the database, any file outside those folders, and the Teacher's original roster file.
+- A staged image whose Result still exists and has no image is moved back to `scans/` instead of being deleted.
+- The referenced image paths are read from the database first. If they cannot be read, nothing is cleaned.
+
+`deleteAllAcademicData(typedPhrase)`:
+
+1. `typedPhrase` must be exactly `DELETE ALL DATA`. Otherwise `ConfirmationPhraseError`.
+2. One transaction deletes every row of `student_answers`, `scan_records`, `results`, `answer_key_items`, `answer_keys`, `students`, `class_subjects`, `classes`, and `subjects`, in that order. A failure rolls all of it back; no file has been touched.
+3. Every file in `scans/` and `scans-deleting/` and every temporary file is removed. A failure here does not undo step 2: `filesRemoved` is false, and the files, which no record refers to any more, are removed by the next cleanup.
+
+- `app_settings`, the schema, and `PRAGMA user_version` are kept.
+- The files are removed after the rows, not before, because a failed transaction would otherwise leave Results without their images.
+
+Pure rules in `domain/settings.ts`: `parseAppearance`, `normalizeTeacherName`, `isDeleteAllPhrase`, `formatBytes`, `cameraPermissionState` (not requested, allowed, denied, denied permanently), and `describeVersion`.
+
+The camera permission is read in the Settings screen with the camera module's own hook and is never requested there. The version shown comes from the app configuration (`Constants.expoConfig`).
+
 ## Demo Data Contract
 
 Implemented. A development aid in `features/demo-data`; the Settings screen shows it only in development builds.
@@ -557,6 +599,35 @@ A Student, an Answer Key, or a Class with Results stays blocked. The Teacher del
 
 - There is no backup and no remote copy. A committed deletion cannot be undone.
 
+## Start-up Contract
+
+Implemented and verified on a physical Android phone; the failure and stall paths are covered by tests only.
+
+Order of a start, each step recorded as a milestone (`core/presentation/lib/startup-marks.ts`):
+
+1. JavaScript started.
+2. Root layout mounted.
+3. Database opened.
+4. Database migrated (with the time it took).
+5. Providers ready: the use cases exist.
+6. First screen mounted.
+7. Preferences read.
+8. Theme applied: only a stored `light` or `dark` is set; `system` needs nothing.
+9. Splash screen hidden, with the reason.
+
+- `DatabaseProvider` gives `SQLiteProvider` one initialization function for its whole life. `SQLiteProvider` reopens the database whenever that function changes, so it is created once and reads its `onStage` callback through a ref. `onStage(stage, ms)` reports `opened`, `migrated`, or `failed`; a failure is reported and then rethrown to the error boundary.
+- The splash screen is hidden by `SplashGate` (start finished), by `StartupErrorBoundary` (start failed), by the stall timer after 12 seconds (`StartupStalled`), or by a last-resort timer after 20 seconds. "Try again" on either screen mounts everything below the error boundary from scratch; stored data is not touched.
+- A milestone reached a second time is counted, not re-timed, which is how a step that runs again would show.
+- In development each milestone is also printed as `[startup] <ms> <name>`. Nothing is stored or sent, and no milestone contains anything about students.
+
+## Loading Contract
+
+Implemented and verified on a physical Android phone.
+
+- `createLoadingGate(isLoading, options)` (`core/presentation/lib/loading-gate.ts`) turns "is loading" into a phase: `hidden` for the first 150 ms, then `skeleton` for at least 350 ms once shown, then `content`. Timers and the clock are injected, so the timing is tested exactly.
+- `useLoadingPhase(isLoading)` gives a screen its phase. `Pending` draws nothing while hidden and the skeleton while in the skeleton phase. A screen passes `refreshPhase` to `Screen` for the small header spinner of a background refresh.
+- `setArtificialLoading(ms, isDevelopment)` holds every gate in its loading phases for a chosen time, for looking at skeletons. It delays no query or file operation and does nothing unless `isDevelopment` is true.
+
 ## Error Model
 
 | Code | Meaning | Status |
@@ -572,7 +643,7 @@ A Student, an Answer Key, or a Class with Results stays blocked. The Teacher del
 | `CAPTURE_REJECTED` | The photo cannot be read (`CaptureRejectedError`, with the problem and, for a sheet of another question count, both counts). No answers and no score were produced | Implemented |
 | `ANSWER_KEY_CHANGED` | The Answer Key was edited after the sheet was read (`AnswerKeyChangedError`). Nothing was saved; the sheet is scanned again | Implemented |
 | `DUPLICATE_ATTEMPT` | The Student already has a Result with this Answer Key and a second attempt was not confirmed (`DuplicateAttemptError`, with the earlier attempts) | Implemented |
-| `FILE_ERROR` | A scan image could not be read, written, or moved (`ScanImageError`), the answer sheet could not be shared (`SheetShareError`, with the reason), or a Result's image could not be set aside for deletion (`ResultImageError`) | Implemented |
+| `FILE_ERROR` | Temporary files could not be removed (`CleanupError`), a scan image could not be read, written, or moved (`ScanImageError`), the answer sheet could not be shared (`SheetShareError`, with the reason), or a Result's image could not be set aside for deletion (`ResultImageError`) | Implemented |
 
 The codes `CAMERA_ERROR`, `OMR_FAILED`, `OMR_UNCERTAIN`, and `PERMISSION_ERROR` that earlier versions of this document planned were not built. A refused photo is `CAPTURE_REJECTED`; questions needing review are a state of the review, not an error; and a camera failure or a denied permission is handled inside the camera dialog without a typed error.
 
@@ -580,6 +651,6 @@ Errors are classes with a `code` field. Callers branch on the class or the code,
 
 ## Versioning
 
-- **Database schema:** versioned migrations applied on app start; see [Database Contract](#database-contract). The current version is 7.
+- **Database schema:** versioned migrations applied on app start; see [Database Contract](#database-contract). The current version is 8.
 - **Answer sheet template:** the template ID carries the question count and the layout version, `AC-<count>-V2`, and is stored with every Result. The reader reads the current layout version only: after a change of geometry, sheets printed earlier are refused and must be printed again. Reading several layout versions side by side is not built.
 - **This document:** updated only during an authorized documentation pass; `docs/` is otherwise frozen.

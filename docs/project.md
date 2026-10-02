@@ -1,6 +1,6 @@
 # Answer Checker — Offline Answer Sheet Scanner
 
-Last reviewed: 2026-10-02
+Last reviewed: 2026-10-03
 
 "Answer Checker" is the working name, taken from the repository folder. The final product name is an open decision.
 
@@ -57,9 +57,11 @@ Accepted on a physical Android phone by the project owner, stage by stage, on 20
 - Validation, case-insensitive uniqueness, and typed errors for all of the above
 - Confirmation dialog before every deletion
 - Themed in-app notice after each successful action
-- Settings screen with a working light/dark theme switch and a note that data is stored only on the device
 - **Results**: list newest first, read a page at a time; one search field over Student name, Student ID, Answer Key, Subject, and Class; filters by Subject, Answer Key, Class, and Student; attempt labels; details with score, counts, every question, and the stored scan image full screen; permanent deletion of a Result with its answers, scan record, and image
-- On-device SQLite database with versioned migrations; migrations 1 to 7 have run on the phone
+- **Settings**: System, Light, and Dark appearance stored on the device; the optional display name used in the Home greeting; the camera permission status; the counts and sizes of what is stored; "Clean temporary files"; "Delete all academic data" with its two confirmations; About with the version
+- **Start-up**: the splash screen held until the database, the providers, the first screen, and the stored theme are ready
+- **Loading skeletons** on every screen that loads, shown only when a load is slow
+- On-device SQLite database with versioned migrations; migrations 1 to 8 have run on the phone
 - Web preview that shows an honest "Only on the phone" state instead of pretending to store data
 
 ### Implemented, not verified on a device
@@ -72,13 +74,18 @@ Code exists and passes the automated tests. These paths were not reported separa
 - Screen-reader behavior of the Scan and Results pickers: focus moving into the sheet and back
 - The recovery paths of Result deletion: a failed transaction putting the image back, and leftover staged files being settled when Results is opened. They are covered by tests with a fake file system
 - Development demo data (Settings, development builds only): no separate acceptance report
+- The start-up message shown when the database cannot be opened, the "taking long to start" screen, and the two timers behind it: they need a failed or stuck start, which was not provoked on the phone
+- The recovery paths of "Delete all academic data" and of the temporary-file cleanup when a file cannot be removed
+- The project's own app icon, adaptive icon, and splash image (they appear only in a standalone build, not in Expo Go)
+- The development-only tools in Settings (loading skeletons control, timings): no separate acceptance report
 - The conversion of legacy exam rows by migration 4. No installed database had such rows, so the phone ran the migration with nothing to convert
 - Subject-to-Class assignments (Classes → Manage subjects) and the row summaries: in use on the phone since the Students stage, with no separate acceptance report
 
 ### Planned
 
 - Calibration of the reader's thresholds on real printed sheets
-- Accessibility pass and final device testing
+- Device checks with TalkBack, large fonts, and display scaling, and the measurements of scanning speed and accuracy on a phone
+- A standalone Android build, once the owner has chosen the package name (see [source-of-truth.md](./source-of-truth.md#release-truth))
 
 No placeholder screen remains: all five tabs are working features.
 
@@ -123,11 +130,12 @@ Rules are in [source-of-truth.md](./source-of-truth.md#student-truth) and [sourc
 | UI components | React Native Reusables (`Button`, `Text`, `Icon`, `Badge`, `Input`), native `Item` list rows modeled on shadcn Item, dialogs and full-screen forms on React Native `Modal`, `@rn-primitives/portal`, `@rn-primitives/slot` | Implemented |
 | Styling | NativeWind 4.2, Tailwind CSS 3.4, `tailwindcss-animate`, `class-variance-authority`, `clsx`, `tailwind-merge` | Implemented |
 | Animation | `react-native-reanimated` 4 | Implemented |
-| Local SQLite database | `expo-sqlite` 57. Required; the only application database | Implemented (schema version 7) |
+| Local SQLite database | `expo-sqlite` 57. Required; the only application database | Implemented (schema version 8) |
 | Record IDs | `expo-crypto` 57 (`randomUUID`) | Implemented |
 | Roster files | `expo-document-picker` 57 to choose a CSV file; `expo-file-system` 57 to read and delete its temporary copy; the CSV reader is project code, with no parser dependency | Implemented |
 | Linting | ESLint 9 with `eslint-config-expo` | Implemented |
-| Automated tests | Node's built-in test runner with `node:sqlite`; no test framework installed | Implemented (497 tests: database, use cases, CSV, file lifecycles, sheet template and PDF, sheet reader, scan, results, dashboard, demo data) |
+| Automated tests | Node's built-in test runner with `node:sqlite`; no test framework installed | Implemented (564 tests: database, use cases, CSV, file lifecycles, sheet template and PDF, sheet reader, scan, results, dashboard, settings, loading, tooling, demo data) |
+| Bundle analysis | `expo-atlas` (development dependency), run with `EXPO_UNSTABLE_ATLAS=true` on an export | Implemented |
 | Camera | `expo-camera` 57 | Implemented |
 | OMR | The project's own TypeScript image processing, on-device. No OpenCV | Implemented |
 | Scan images | `expo-image-manipulator` 57 to resize the photo; `fflate` 0.8 for the project's own PNG reader and writer; `expo-file-system` 57 | Implemented |
@@ -225,15 +233,19 @@ src/
     scan/                               domain, application, infrastructure, presentation
     results/                            domain, application, infrastructure, presentation
     dashboard/                          domain, application, infrastructure, presentation (Home)
+    settings/                           domain, application, infrastructure, presentation
     demo-data/                          domain, application, infrastructure, presentation (development aid)
-    settings/                           presentation
   global.css                            Tailwind layers and theme tokens
 scripts/generate-answer-sheet.mjs       Writes an answer sheet PDF on the computer, for inspection
 tests/database/                         Node tests for schema, migrations, repositories, use cases, CSV, files
 tests/scan/                             Node tests for the sheet template and PDF, the reader, and the scan use cases
 tests/results/                          Node tests for migration 7, the list, filters, details, image store, and deletion
 tests/dashboard/                        Node tests for Home's counts, local day, recent lists, links, and Continue scanning
+tests/settings/                         Node tests for migration 8, preferences, storage summary, cleanup, and delete all
+tests/loading/                          Node tests for skeleton timing and the development loading control
+tests/tooling/                          Node tests for the Metro block list, the splash configuration, and the start-up rules
 tests/demo-data/                        Node tests for adding and removing the demo data
+scripts/generate-brand-assets.mjs       Draws the icon, adaptive icon, splash image, and favicon
 ```
 
 ## Main User Flow
@@ -325,7 +337,7 @@ The reader reads only the A–D bubbles and the sheet's own markers. It does not
 
 - The only database is the local SQLite database (`expo-sqlite`), stored on the Teacher's device in the app's private storage.
 - The file is `answer-checker.db`. It is opened at app start with WAL journaling and foreign keys enabled and verified, then migrated.
-- The schema version is kept in `PRAGMA user_version`. The latest version is **7**.
+- The schema version is kept in `PRAGMA user_version`. The latest version is **8**.
 - Tables (all `STRICT`): `subjects`, `classes`, `class_subjects`, `students`, `answer_keys`, `answer_key_items`, `results`, `student_answers`, `scan_records`.
 - The app reads and writes `subjects`, `classes`, `class_subjects`, `students`, `answer_keys`, and `answer_key_items`. Scan writes `results`, `student_answers`, and `scan_records`; Results reads them and deletes them. A saved Result is never updated. Results are also counted to block deletions, lock used Answer Keys, and label Students already scanned.
 - A Result stores the names it was saved under (Student, Student ID, Class, Subject, Answer Key), so it keeps showing them after a rename or a move.
@@ -336,6 +348,8 @@ The reader reads only the A–D bubbles and the sheet's own markers. It does not
 - A saved Result has one image, the flattened sheet, stored as a PNG file in the app's private documents folder and named by the Result's ID. The database stores only its path. The camera's photo is deleted as soon as the sheet is read or refused. Nothing is written to the device gallery.
 - A generated answer sheet PDF is a temporary file in the app's cache; only the newest one is kept.
 - The database is not encrypted by the app.
+- `app_settings` holds the app's own preferences: the appearance and the optional display name. It is kept when all academic data is deleted.
+- The app makes no backup. Android's system backup is left at its default and may include the database when the Teacher has it enabled on the phone.
 - The web preview opens no database.
 
 The schema is drawn in [diagrams.md](./diagrams.md#implemented-sqlite-schema) and described in [api.md](./api.md#database-contract).
@@ -387,6 +401,9 @@ They may be reconsidered only after an explicit requirement change, recorded as 
 ## Constraints
 
 - Must run acceptably on low and mid-range Android devices: camera responsiveness, image preprocessing time, and memory use matter.
+- A standalone build is blocked until the owner chooses the Android package name.
+- Development needs the phone to reach the computer's dev server on port 8081 over the same Wi-Fi. A network that keeps its clients apart prevents that; the phone's own hotspot works instead. "Failed to download remote update" in Expo Go means the bundle could not be fetched, not that the app is broken.
+- A cold Metro cache makes the first bundle take about 30 to 40 seconds on the development computer; the next takes well under a second. `--clear` forces the cold case and is not for everyday use.
 - Everything built so far uses only Expo SDK modules and JavaScript, so it runs in Expo Go without a development build. Native OpenCV would end that and is not used.
 - Reading a sheet takes a moment of JavaScript work on the phone; the photo is reduced to a working size first.
 - One answer sheet holds at most 100 questions.
@@ -419,7 +436,7 @@ Inspected 2026-10-02.
 | Navigation | Implemented and verified. Bottom tabs: `/`, `/keys`, `/scan`, `/students`, `/results`. Secondary screens opened from Home → More, with Back and Home still selected: `/classes`, `/subjects`, `/settings`. No drawer or sidebar, and no `/exams` route |
 | Design system | Implemented and verified. Light and dark tokens, selective glass surfaces. Live blur is off on Android |
 | Home dashboard | Implemented and verified. Real counts, Scanned today, recent Results and Answer Keys, Continue scanning, quick actions that open the create forms, and the More list. Read again on every visit; no static or sample values |
-| SQLite database | Implemented. `answer-checker.db`, WAL, foreign keys on, `STRICT` tables, `PRAGMA user_version` = 7 |
+| SQLite database | Implemented. `answer-checker.db`, WAL, foreign keys on, `STRICT` tables, `PRAGMA user_version` = 8 |
 | Migration 1 (base schema) | Verified on an Android 14 emulator and on a physical phone |
 | Migration 2 (`class_subjects`) | Has run on a physical phone |
 | Migration 3 (Student ID unique in the app) | Has run on a physical phone |
@@ -439,20 +456,29 @@ Inspected 2026-10-02.
 | OMR thresholds | Initial values. Not calibrated on a range of printed sheets, pencils, light, and phones |
 | Results | Implemented and verified: list, search, filters, attempts, details, stored-scan viewer, permanent deletion with its answers, scan record, and image |
 | Permanent deletion | Implemented for Subjects, Classes, assignments, Students, Answer Keys, and Results |
+| Migration 8 (`app_settings`) | Has run on a physical phone |
+| Settings | Implemented and verified: appearance (System, Light, Dark) stored and restored, display name, camera permission status, storage counts and sizes, temporary-file cleanup, deletion of all academic data, About |
+| Start-up | Implemented and verified: splash screen held until the app is ready. The failure and stall screens are implemented and covered by tests, not provoked on a device |
+| Loading skeletons | Implemented and verified: shared skeleton and timing on every screen that loads; small refresh indicator on reloads |
+| Metro configuration | The project's `tests/`, `docs/`, `scripts/`, and generated folders under `.expo/` are excluded from Metro's file watching |
 | Demo data | Implemented. Settings, development builds only: adds and removes a fixed set of made-up records |
-| Repositories and use cases | Subjects, Classes, Subject-to-Class assignments, Students, Answer Keys, Scan, Results, dashboard, demo data |
+| Repositories and use cases | Subjects, Classes, Subject-to-Class assignments, Students, Answer Keys, Scan, Results, dashboard, settings, demo data |
 | Backend | None. No server code, no network requests |
 | Supabase, MongoDB | Not installed. Excluded from the architecture |
 | Authentication, synchronization | None. Excluded from the architecture |
-| Automated tests | 497 tests in `tests/database/`, `tests/scan/`, `tests/results/`, `tests/dashboard/`, and `tests/demo-data/`, run by `npm run test:db`, all passing. No UI tests |
-| App icons and splash | Still the Expo template artwork |
-| Native identifiers | `android.package` and `ios.bundleIdentifier` not set |
+| Automated tests | 564 tests in `tests/database/`, `tests/scan/`, `tests/results/`, `tests/dashboard/`, `tests/settings/`, `tests/loading/`, `tests/tooling/`, and `tests/demo-data/`, run by `npm run test:db`, all passing. No UI tests |
+| App icons and splash | The project's own artwork (three answer bubbles, the middle one checked, on pink), generated by `npm run brand`. The splash has a light and a dark background. Not seen on a device: Expo Go shows its own |
+| Native identifiers | `android.package` and `ios.bundleIdentifier` not set. Blocked by an owner decision |
+| Version | 1.0.0 in `app.json`; no Android version code or iOS build number set |
+| License | `LICENSE` is the Expo template's MIT text; the copyright holder is an owner decision |
+| Dependencies removed in stage 8 | `expo-device`, `expo-image`, `expo-web-browser`: template leftovers that no code used |
+| Development dependencies added | `expo-atlas` (bundle analysis) and `@expo/ngrok` (tunnel mode of the dev server; not needed on a network where the phone can reach the computer) |
 
-Verification performed on the review date: `npm run test:db` (497 pass), `tsc --noEmit`, ESLint, `expo-doctor` (21 of 21), React Native Reusables `doctor`, and JavaScript bundle exports for web and Android all pass.
+Verification performed on the review date: `npm run test:db` (564 pass), `tsc --noEmit`, ESLint, `expo-doctor` (21 of 21), React Native Reusables `doctor`, and JavaScript bundle exports for web and Android all pass.
 
 The Node tests prove the SQL, the migrations and every upgrade path, the repositories, the use cases, the CSV reader, the roster-file and scan-file lifecycles and the image handling of Result deletion (with a fake file system), the sheet template and PDF for every question count, and the sheet reader on generated pictures of sheets. They do not prove `expo-sqlite`, the file picker, the camera, the reader on photos of printed sheets, or the UI on a device; the acceptance passes on the phone do that for the features marked verified.
 
-"Verified" in this document rests on the project owner's acceptance on a physical Android phone. TalkBack and raised font sizes have not been systematically checked.
+"Verified" in this document rests on the project owner's acceptance on a physical Android phone. TalkBack, raised font sizes, and display scaling have not been systematically checked. Scanning speed, memory use, and accuracy across pencils, pens, erasures, shadow, glare, and blur have not been measured; the reader was accepted on a phone in ordinary use and its thresholds remain uncalibrated.
 
 Web is a preview of the phone app only. In a browser the app is held to a 480-point column; there is no desktop or tablet layout. The database provider is a pass-through there, and the Subjects, Classes, Students, Answer Keys, Scan, and Results screens show "Only on the phone" with no Add or camera action, and Home shows its actions with "Only on the phone" in place of the numbers.
 
@@ -469,6 +495,9 @@ The exam-versus-answer-key mismatches recorded earlier are resolved: migration 4
 | Results filters | Only records that have a Result are offered |
 | Home create actions | "Create answer key" opens Answer Keys without the form while no Subject exists, and "Add student" opens Students without the form while no Class exists; those screens explain what is missing |
 | Home recent rows | A long name is cut to one line |
+| After deleting all data | Screens that were open keep their search text and filters until they are next shown; they then read the empty database |
+| Storage sizes | Approximate: they are the sizes of the files, measured when Settings is opened |
+| Settings on web | The appearance choice is applied but not remembered; storage, cleanup, and deletion are phone-only |
 | Long Answer Keys | A key may have up to 200 questions, but one sheet holds 100. A longer key cannot be scanned |
 | Reader calibration | The reader's thresholds are initial values; see OMR Overview |
 | Create answer key from Scan | The action in the empty Answer Key picker opens the Answer Keys screen, not the form itself |
@@ -487,7 +516,7 @@ The exam-versus-answer-key mismatches recorded earlier are resolved: migration 4
 | 5 | Scan: generated answer sheet, camera, on-device reading, review, scoring, saving | Implemented and verified |
 | 6 | Results and permanent result and image deletion | Implemented and verified |
 | 7 | Home integration with real data | Implemented and verified |
-| 8 | Settings, accessibility, and final device testing | Planned |
+| 8 | Settings, data management, branding, start-up, loading feedback, and release audit | Implemented and verified |
 
 ## Future Features
 
