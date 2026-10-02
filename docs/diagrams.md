@@ -12,26 +12,31 @@ Implemented. This is what the code contains today.
 flowchart TD
     subgraph Device["Teacher's device - no network used"]
         ROOT["src/app/_layout.tsx: composition root"]
-        UI["Presentation: Home, Subjects, Classes, Manage subjects dialog, Settings, placeholders"]
-        UC["Application: subject, class, and class-subject use cases"]
-        DOMAIN["Domain: Subject, SchoolClass, name rules"]
+        UI["Presentation: Home, Answer Keys, Students, Subjects, Classes, Settings, placeholders"]
+        UC["Application: subject, class, class-subject, student, and answer key use cases"]
+        DOMAIN["Domain: Subject, SchoolClass, Student, AnswerKey, roster and CSV rules"]
         REPO["Infrastructure: SQLite repositories"]
+        FILES["Infrastructure: roster file picker"]
         CORE["Infrastructure: database provider, migrations, runInTransaction"]
-        DB[("answer-checker.db - schema version 2")]
+        DB[("answer-checker.db - schema version 4")]
+        CSV["CSV file chosen by the Teacher"]
     end
 
     ROOT --> UI
     ROOT --> REPO
+    ROOT --> FILES
     UI --> UC
     UC --> DOMAIN
     REPO --> UC
+    FILES --> UC
     REPO --> CORE
     CORE --> DB
+    FILES --> CSV
 ```
 
 ## Target Architecture
 
-Planned. Camera, OMR, and file storage are not built.
+Planned. Camera, OMR, and scan-image storage are not built.
 
 ```mermaid
 flowchart TD
@@ -66,8 +71,8 @@ Implemented. Arrows show allowed import direction. Rules are in [source-of-truth
 flowchart TD
     ROUTES["src/app: routes and composition root"]
     PRES["Presentation: screens, components, hooks"]
-    INFRA["Infrastructure, all local: SQLite, later files, camera, OpenCV"]
-    APP["Application: use cases and repository contracts"]
+    INFRA["Infrastructure, all local: SQLite, roster files, later camera and OpenCV"]
+    APP["Application: use cases and ports"]
     DOMAIN["Domain: entities and pure rules"]
 
     ROUTES --> PRES
@@ -81,17 +86,15 @@ flowchart TD
 
 ## Mobile Navigation
 
-Implemented and verified on a physical Android phone. The bottom bar has exactly five items. Classes, Subjects, and Settings open from the More list on Home and are not in the bar; while one is open, Home stays selected.
-
-"Exams" is the temporary label of a placeholder. Its approved future label is "Keys" (Answer Keys).
+Implemented and verified on a physical Android phone. The bottom bar has exactly five items. Classes, Subjects, and Settings open from the More list on Home and are not in the bar; while one is open, Home stays selected. There is no Exams tab.
 
 ```mermaid
 flowchart TD
     subgraph Bar["Bottom navigation - five items"]
         HOME["1 Home"]
-        EXAMS["2 Exams - placeholder, will become Keys"]
+        KEYS["2 Keys - Answer Keys"]
         SCAN["3 Scan - placeholder"]
-        STUDENTS["4 Students - placeholder"]
+        STUDENTS["4 Students"]
         RESULTS["5 Results - placeholder"]
     end
 
@@ -103,29 +106,31 @@ flowchart TD
     CLASSES -- "Back" --> HOME
     SUBJECTS -- "Back" --> HOME
     SETTINGS -- "Back" --> HOME
+
+    KEYS --> KEYFORM["Answer key form: create, edit, duplicate"]
+    KEYS --> KEYVIEW["Answer key view"]
+    KEYS -- "Open Subjects, only while no subject exists" --> SUBJECTS
+    STUDENTS --> STUDENTFORM["Student form: add, edit, move"]
+    STUDENTS --> IMPORT["Roster import preview"]
 ```
 
-Planned nested screens that do not exist: Answer Key editor, Student roster and import, scan selection, Camera, Review Detection, Result Detail.
+Planned nested screens that do not exist: scan selection, Camera, Review Detection, Result Detail.
 
 ## Implemented SQLite Schema
 
-Implemented. This is the physical schema after migrations 1 and 2 (`PRAGMA user_version` = 2). All tables are `STRICT`. All `id` columns are device-generated UUIDs. Only `subjects`, `classes`, and `class_subjects` are used by the app today.
-
-`exams`, `exam_questions`, and `answer_keys` are the names in the database. They predate the Answer Key decision and are shown as they are; see [Planned Answer Key Model](#planned-answer-key-model).
+Implemented. This is the physical schema after migrations 1 to 4 (`PRAGMA user_version` = 4). All tables are `STRICT`. All `id` columns are device-generated UUIDs. There is no exam table: migration 4 converted `exams`, `exam_questions`, and the old per-question `answer_keys` into the tables below.
 
 ```mermaid
 erDiagram
     SUBJECTS ||--o{ CLASS_SUBJECTS : "taught to"
     CLASSES ||--o{ CLASS_SUBJECTS : "takes"
     CLASSES ||--o{ STUDENTS : contains
-    CLASSES ||--o{ EXAMS : "restricts delete"
-    SUBJECTS ||--o{ EXAMS : "restricts delete"
-    EXAMS ||--o{ EXAM_QUESTIONS : has
-    EXAM_QUESTIONS ||--o| ANSWER_KEYS : "correct answer"
-    EXAMS ||--o{ EXAM_RESULTS : produces
-    STUDENTS ||--o{ EXAM_RESULTS : receives
-    EXAM_RESULTS ||--o{ STUDENT_ANSWERS : contains
-    EXAM_RESULTS ||--o| SCAN_RECORDS : "scanned from"
+    SUBJECTS ||--o{ ANSWER_KEYS : has
+    ANSWER_KEYS ||--|{ ANSWER_KEY_ITEMS : "one per question"
+    ANSWER_KEYS ||--o{ RESULTS : "scored with"
+    STUDENTS ||--o{ RESULTS : receives
+    RESULTS ||--o{ STUDENT_ANSWERS : contains
+    RESULTS ||--o| SCAN_RECORDS : "scanned from"
 
     SUBJECTS {
         text id PK
@@ -147,35 +152,27 @@ erDiagram
     STUDENTS {
         text id PK
         text class_id FK
-        text student_number
+        text student_number UK
         text full_name
         text created_at
         text updated_at
     }
-    EXAMS {
+    ANSWER_KEYS {
         text id PK
         text subject_id FK
-        text class_id FK
-        text title
+        text name
         integer question_count
         text created_at
         text updated_at
     }
-    EXAM_QUESTIONS {
-        text id PK
-        text exam_id FK
-        integer question_number
-        integer choice_count
-        integer points
-    }
-    ANSWER_KEYS {
-        text id PK
-        text exam_question_id FK
+    ANSWER_KEY_ITEMS {
+        text answer_key_id PK, FK
+        integer question_number PK
         text correct_answer
     }
-    EXAM_RESULTS {
+    RESULTS {
         text id PK
-        text exam_id FK
+        text answer_key_id FK
         text student_id FK
         integer score
         integer total
@@ -200,47 +197,65 @@ erDiagram
 
 Notes:
 
-- Delete rules: `class_subjects`, `exam_questions`, `answer_keys`, `student_answers`, and `scan_records` are removed with their parent (CASCADE). Every other foreign key is RESTRICT. The full table is in [api.md](./api.md#foreign-keys-and-delete-rules).
-- `students.student_number` is unique within a class. One result per student per exam row is enforced by a unique index.
+- Delete rules: `class_subjects`, `answer_key_items`, `student_answers`, and `scan_records` are removed with their parent (CASCADE). Every other foreign key is RESTRICT. The full table is in [api.md](./api.md#foreign-keys-and-delete-rules).
+- An Answer Key has a Subject and no Class. The Class reaches a Result through the Student.
+- `students.student_number` is the Student ID and is unique in the whole app, ignoring letter case. An Answer Key name is unique within its Subject. One result per student per answer key is enforced by a unique index.
+- `question_count` and `question_number` are 1 to 40; `correct_answer` is A, B, C, or D.
 - `scan_records.image_path` points to a file in local storage, or is null when no image was kept.
+- `results`, `student_answers`, and `scan_records` hold no rows yet: nothing saves a result until scanning exists.
 - There is no teacher, account, role, or synchronization table, and no soft-delete or archive column.
 
-## Planned Answer Key Model
+## Roster Import
 
-Planned. This is the approved product model, not the current schema. It requires a migration that does not exist yet.
+Implemented and verified on a physical Android phone.
 
 ```mermaid
-erDiagram
-    SUBJECT ||--o{ ANSWER_KEY : has
-    ANSWER_KEY ||--|{ KEY_ANSWER : "one per question"
-    SUBJECT ||--o{ CLASS_SUBJECT : "taught to"
-    CLASS ||--o{ CLASS_SUBJECT : takes
-    CLASS ||--o{ STUDENT : contains
-    ANSWER_KEY ||--o{ RESULT : "scored with"
-    STUDENT ||--o{ RESULT : receives
+sequenceDiagram
+    actor Teacher
+    participant UI as Students screen
+    participant UC as Student use cases
+    participant Files as Roster file picker
+    participant DB as SQLite
 
-    ANSWER_KEY {
-        text id PK
-        text subject_id FK
-        text name
-        integer question_count
-    }
-    KEY_ANSWER {
-        integer question_number
-        text correct_answer "A, B, C, or D"
-    }
+    Teacher->>UI: Import CSV
+    UI->>UC: pickRoster()
+    UC->>Files: Delete stale copies in the app cache
+    UC->>Files: Pick a file
+    Files-->>UC: App-owned temporary copy
+    UC->>Files: Read the text
+    UC->>DB: Stored Student IDs and Classes
+    UC->>Files: Delete the temporary copy (always)
+    UC-->>UI: Draft: valid, invalid, repeated, already stored, groups
+    UI-->>Teacher: Preview and class mapping
+    alt Teacher cancels
+        UI-->>Teacher: Nothing stored, nothing left to clean up
+    else Teacher confirms
+        UI->>UC: importStudents(rows)
+        UC->>DB: One transaction: check classes and IDs, insert all
+        UI-->>Teacher: Notice "12 students imported"
+    end
+    Note over Files: The original file is never deleted, changed, or moved.
 ```
 
-Differences from the implemented schema:
+## Answer Key Editing Rule
 
-- An Answer Key belongs to a Subject only. Today `exams.class_id` is required.
-- An Answer Key is reused across Classes; the Class is chosen at scan time and reaches the Result through the Student.
-- No question text, choice text, or exam content is stored.
-- Table and column names for this model are not decided.
+Implemented. The locked path is covered by tests; it cannot be reached on a phone until Results exist.
+
+```mermaid
+flowchart TD
+    E["Save changes to an answer key"] --> V{"Name, subject, 1 to 40 questions, every answer A to D?"}
+    V -- No --> X["VALIDATION_ERROR, nothing saved"]
+    V -- Yes --> R{"Saved results scored with this key?"}
+    R -- No --> W["Replace header and all items in one transaction"]
+    R -- Yes --> S{"Subject, question count, or any answer changed?"}
+    S -- No --> N["Save the new name only"]
+    S -- Yes --> L["ANSWER_KEY_LOCKED, nothing saved"]
+    L --> D["Duplicate the key and revise the copy"]
+```
 
 ## Planned Scanning Sequence
 
-Planned. Nothing here is built except `listSubjects` and `listClassesForSubject`.
+Planned. The four selection reads exist; nothing from "Scan sheet" onward is built.
 
 ```mermaid
 sequenceDiagram
@@ -309,9 +324,9 @@ flowchart TD
     Q --> R["View Result"]
 ```
 
-## Permanent Deletion: Subject or Class
+## Permanent Deletion: Blocked or Deleted
 
-Implemented and verified on a physical Android phone.
+Implemented for Subjects, Classes, Students, and Answer Keys. The diagram shows an Answer Key; the others differ only in what is counted.
 
 ```mermaid
 sequenceDiagram
@@ -322,23 +337,30 @@ sequenceDiagram
     participant DB as SQLite
 
     Teacher->>UI: Tap Delete on a row
-    UI-->>Teacher: Confirm: name, permanent, Cancel first
+    UI-->>Teacher: Confirm: name, subject, permanent, Cancel first
     Teacher->>UI: Delete
-    UI->>UC: deleteClass(id)
+    UI->>UC: deleteAnswerKey(id)
     UC->>Repo: delete(id)
     Repo->>DB: BEGIN IMMEDIATE
     Repo->>DB: Record exists?
-    Repo->>DB: Count students and exam rows
-    alt Dependents exist
+    Repo->>DB: Count results scored with the key
+    alt Results exist
         Repo->>DB: ROLLBACK
-        Repo-->>UI: IN_USE with counts
+        Repo-->>UI: IN_USE with the count
         UI-->>Teacher: Dialog explains why it is blocked
     else None
-        Repo->>DB: DELETE row (class_subjects rows cascade)
+        Repo->>DB: DELETE row (answer_key_items rows cascade)
         Repo->>DB: COMMIT
-        UI-->>Teacher: Notice "Class deleted permanently"
+        UI-->>Teacher: Notice "Answer key deleted permanently"
     end
 ```
+
+| Deleting | Counted before deleting |
+| --- | --- |
+| Subject | Answer Keys of the subject |
+| Class | Students of the class |
+| Student | Results of the student |
+| Answer Key | Results scored with the key |
 
 ## Permanent Deletion: Result
 

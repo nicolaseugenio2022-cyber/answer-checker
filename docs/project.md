@@ -10,7 +10,7 @@ Answer Checker is a mobile application that checks shaded multiple-choice answer
 
 The app is **offline-only**. Everything runs on the phone and is stored in a local SQLite database on the Teacher's device. There is no backend, no cloud database, no synchronization, and no account.
 
-Today the Teacher can manage Subjects and Classes and choose which Subjects are taught to each Class. Students, Answer Keys, scanning, and Results are not built.
+Today the Teacher can manage Subjects, Classes, and Students, choose which Subjects are taught to each Class, import a class roster from a CSV file, and create Answer Keys. Scanning and Results are not built.
 
 ## Problem Statement
 
@@ -42,33 +42,34 @@ Status labels are defined in [source-of-truth.md](./source-of-truth.md#status-vo
 
 ### Implemented and verified
 
-Accepted on a physical Android phone by the project owner on 2026-10-02.
+Accepted on a physical Android phone by the project owner, stage by stage, on 2026-10-02.
 
 - Expo + TypeScript project with Expo Router
 - Design system: NativeWind, React Native Reusables, neutral theme with pink identity color, light and dark tokens, selective glass surfaces
-- Navigation shell: a floating glass tab bar with exactly five tabs (Home, Exams, Scan, Students, Results) and a raised circular indicator on the selected tab
+- Navigation shell: a floating glass tab bar with exactly five tabs (Home, Keys, Scan, Students, Results) and a raised circular indicator on the selected tab
 - Home dashboard: greeting, quick actions, empty-state Activity rows, and a More list with Classes, Subjects, and Settings. It shows no statistics or records
-- **Subjects**: view, add, rename, and permanently delete, stored in SQLite
-- **Classes**: view, add, rename, and permanently delete, stored in SQLite
-- Name validation, case-insensitive uniqueness, deletion restrictions with the blocking counts, and typed errors for both
+- **Subjects** and **Classes**: view, add, rename, and permanently delete
+- **Students**: view grouped by Class, search by name or Student ID, filter by Class, add, edit, move to another Class, and permanently delete
+- **Roster import**: a CSV file with `student_id,full_name` into one Class, or with `student_id,full_name,grade_and_section,course` mapped group by group to existing Classes, with a preview before anything is stored
+- **Answer Keys**: view grouped by Subject, search, filter by Subject, create, view, edit, duplicate, and permanently delete, with 1 to 40 questions and one of A to D per question
+- Validation, case-insensitive uniqueness, and typed errors for all of the above
 - Confirmation dialog before every deletion
-- Themed in-app notice after create, rename, and delete
+- Themed in-app notice after each successful action
 - Settings screen with a working light/dark theme switch and a note that data is stored only on the device
-- On-device SQLite database with versioned migrations; migration 1 (the base schema) has run on the phone
+- On-device SQLite database with versioned migrations; migrations 1 to 4 have run on the phone
 - Web preview that shows an honest "Only on the phone" state instead of pretending to store data
 
 ### Implemented, not verified on a device
 
-Code exists and passes the automated checks. Not yet confirmed on a physical phone.
+Code exists and passes the automated tests. These paths cannot be reached on a phone until Results exist, or were not reported separately.
 
-- **Migration 2**: the `class_subjects` table
-- **Subject-to-Class assignments**: Classes → Manage subjects, with a checkbox list of all subjects and an atomic save
-- Row summaries: the number of subjects on each Class row and the number of classes on each Subject row
+- Deletion of a Student or an Answer Key **blocked by saved Results**, with the count
+- An Answer Key with Results being **locked**: only its name can change
+- The conversion of legacy exam rows by migration 4. No installed database had such rows, so the phone ran the migration with nothing to convert
+- Subject-to-Class assignments (Classes → Manage subjects) and the row summaries: in use on the phone since the Students stage, with no separate acceptance report
 
 ### Planned
 
-- Students: add one, add several, and offline CSV roster import (Stage 3)
-- Answer Keys, replacing the "Exams" placeholder, with the schema and terminology migration it needs (Stage 4)
 - Scan standardized answer sheets with the camera
 - On-device OMR with `SELECTED`, `BLANK`, `MULTIPLE`, and `UNCERTAIN` states
 - Review and correct detected answers
@@ -76,20 +77,22 @@ Code exists and passes the automated checks. Not yet confirmed on a physical pho
 - Save results locally and view previous results
 - Permanently delete results, including answer rows, scan metadata, and scan images
 - An original printable answer sheet with four alignment markers
+- Home showing real activity
 
-Placeholder screens exist for Exams & answer keys, Scan answer sheet, Students, and Results. Each says what it will do and that it is not built; none has controls or data.
+Placeholder screens exist for Scan answer sheet and Results. Each says what it will do and that it is not built; neither has controls or data.
 
 ### Optional/Future
 
 - QR code on the sheet to identify the Answer Key or template automatically
 - Bubbled or QR-coded Student ID on the sheet, always confirmed by the Teacher before saving
+- Adding several Students in one manual form
 - Batch scanning
 - Result export
 - Manual backup/export to a local file, and restore from one. This would not make the app cloud-dependent. Not designed or approved yet
 
 ### Excluded
 
-Backend, cloud database, synchronization, authentication, accounts, web persistence, handwriting recognition, and AI/LLM answer recognition. See [Non-Goals](#non-goals).
+Backend, cloud database, synchronization, authentication, accounts, web persistence, handwriting recognition, AI/LLM answer recognition, and creating or storing the examination itself. See [Non-Goals](#non-goals).
 
 ## Subjects and Classes
 
@@ -100,6 +103,14 @@ Backend, cloud database, synchronization, authentication, accounts, web persiste
 
 Rules are in [source-of-truth.md](./source-of-truth.md#subject-and-class-truth); the operations are in [api.md](./api.md#subjects-and-classes-contract).
 
+## Students and Answer Keys
+
+- A **Student** has a Student ID, a full name, and one Class. The Student ID is unique in the whole app.
+- An **Answer Key** has a name, one Subject, 1 to 40 questions, and one correct letter per question. It belongs to no Class and is used with every Class that takes its Subject.
+- The Teacher never creates an exam in the app.
+
+Rules are in [source-of-truth.md](./source-of-truth.md#student-truth) and [source-of-truth.md](./source-of-truth.md#answer-key-truth); the operations are in [api.md](./api.md#student-contract) and [api.md](./api.md#answer-key-contract).
+
 ## Technology Stack
 
 | Area | Technology | Status |
@@ -108,13 +119,14 @@ Rules are in [source-of-truth.md](./source-of-truth.md#subject-and-class-truth);
 | Navigation | Expo Router 57 `Tabs` with a custom bottom tab bar, typed routes | Implemented |
 | Icons | `lucide-react-native` with `react-native-svg`, through the Reusables `Icon` component | Implemented |
 | Blur | `expo-blur` 57, tab bar only; live blur on iOS and web, opaque fallback on Android | Implemented |
-| UI components | React Native Reusables (`Button`, `Text`, `Icon`, `Badge`, `Input`), native `Item` list rows modeled on shadcn Item, dialogs on React Native `Modal`, `@rn-primitives/portal`, `@rn-primitives/slot` | Implemented |
+| UI components | React Native Reusables (`Button`, `Text`, `Icon`, `Badge`, `Input`), native `Item` list rows modeled on shadcn Item, dialogs and full-screen forms on React Native `Modal`, `@rn-primitives/portal`, `@rn-primitives/slot` | Implemented |
 | Styling | NativeWind 4.2, Tailwind CSS 3.4, `tailwindcss-animate`, `class-variance-authority`, `clsx`, `tailwind-merge` | Implemented |
 | Animation | `react-native-reanimated` 4 | Implemented |
-| Local SQLite database | `expo-sqlite` 57. Required; the only application database | Implemented (schema version 2) |
+| Local SQLite database | `expo-sqlite` 57. Required; the only application database | Implemented (schema version 4) |
 | Record IDs | `expo-crypto` 57 (`randomUUID`) | Implemented |
+| Roster files | `expo-document-picker` 57 to choose a CSV file; `expo-file-system` 57 to read and delete its temporary copy; the CSV reader is project code, with no parser dependency | Implemented |
 | Linting | ESLint 9 with `eslint-config-expo` | Implemented |
-| Automated tests | Node's built-in test runner with `node:sqlite`; no test framework installed | Implemented (141 database and use-case tests) |
+| Automated tests | Node's built-in test runner with `node:sqlite`; no test framework installed | Implemented (270 database, use-case, CSV, and file-lifecycle tests) |
 | Camera | Expo Camera or compatible React Native camera library | Planned, not installed |
 | OMR | OpenCV, on-device | Planned, not installed |
 | Query/ORM layer | Drizzle ORM | Optional, not decided, not installed |
@@ -150,7 +162,7 @@ The theme is a neutral base with pink as the identity color: deeper pink in ligh
 The bottom navigation has exactly five items:
 
 1. Home
-2. Exams — temporary label of a placeholder that will become `Keys` (Answer Keys)
+2. Keys (Answer Keys)
 3. Scan
 4. Students
 5. Results
@@ -163,7 +175,7 @@ Home → More → Subjects
 Home → More → Settings
 ```
 
-While one of them is open the bar stays visible, Home stays the selected tab, and both the header Back action and the Android back button return to Home. Rules are in [source-of-truth.md](./source-of-truth.md#navigation-truth).
+While one of them is open the bar stays visible, Home stays the selected tab, and both the header Back action and the Android back button return to the screen it was opened from. That is Home, except when Subjects was opened from the "Open Subjects" button that Answer Keys shows while no Subject exists. The bar hides while the keyboard is open. Rules are in [source-of-truth.md](./source-of-truth.md#navigation-truth).
 
 ## Architecture Overview
 
@@ -194,26 +206,28 @@ src/
     _layout.tsx                         Theme, database provider, use-case providers, navigation shell
     <route>.tsx                         One-line re-export of a feature screen
   core/
-    domain/                             Name rules shared by named records
+    domain/                             Name rules shared by named records; CSV reader
     application/                        Typed errors, Clock and IdGenerator ports, name validation
     infrastructure/database/            SQLite provider, migrations, transactions, SQL connection type
-    presentation/components/            Screen body, list screen, dialogs, notice, placeholder
+    presentation/components/            Screen body, list screen, dialogs, choice list, chips, search, notice
     presentation/components/ui/         React Native Reusables components
     presentation/navigation/            Bottom-tab shell and the destination list
-    presentation/hooks/, lib/           Press feedback, theme tokens, helpers
+    presentation/hooks/, lib/           Press feedback, keyboard height, theme tokens, helpers
   features/
     subjects/                           domain, application, infrastructure, presentation
     classes/                            domain, application, infrastructure, presentation
     class-subjects/                     application, infrastructure, presentation
+    students/                           domain, application, infrastructure, presentation
+    answer-keys/                        domain, application, infrastructure, presentation
     dashboard/, settings/               presentation
-    exams/, scan/, students/, results/  presentation (placeholders)
+    scan/, results/                     presentation (placeholders)
   global.css                            Tailwind layers and theme tokens
-tests/database/                         Node tests for schema, migrations, repositories, use cases
+tests/database/                         Node tests for schema, migrations, repositories, use cases, CSV, files
 ```
 
 ## Main User Flow
 
-Planned. Only the first step works today.
+Planned from "Scan answer sheet" onward. The records the Teacher selects from (Subjects, Answer Keys, Classes, Students) are implemented; no scan screen selects them yet.
 
 ```text
 Teacher opens app
@@ -288,12 +302,13 @@ The initial version reads only the A–D bubbles and the alignment markers. It d
 
 - The only database is the local SQLite database (`expo-sqlite`), stored on the Teacher's device in the app's private storage.
 - The file is `answer-checker.db`. It is opened at app start with WAL journaling and foreign keys enabled and verified, then migrated.
-- The schema version is kept in `PRAGMA user_version`. The latest version is **2**.
-- Tables (all `STRICT`): `subjects`, `classes`, `class_subjects`, `students`, `exams`, `exam_questions`, `answer_keys`, `exam_results`, `student_answers`, `scan_records`.
-- Only `subjects`, `classes`, and `class_subjects` are read or written by the app today. The other tables exist in the schema and are unused.
-- There is no teacher, account, role, or synchronization table.
+- The schema version is kept in `PRAGMA user_version`. The latest version is **4**.
+- Tables (all `STRICT`): `subjects`, `classes`, `class_subjects`, `students`, `answer_keys`, `answer_key_items`, `results`, `student_answers`, `scan_records`.
+- The app reads and writes `subjects`, `classes`, `class_subjects`, `students`, `answer_keys`, and `answer_key_items`. It only counts rows in `results`, to block deletions and lock used Answer Keys. `student_answers` and `scan_records` are unused until scanning exists.
+- There is no exam, teacher, account, role, or synchronization table.
 - IDs are UUIDs generated on the device. Timestamps are UTC ISO-8601 strings.
 - Each installation has its own independent database.
+- An imported roster file is never stored: not its contents, its name, or its path. Only the Students are.
 - Scan images, when that feature exists, are local files in the app's storage.
 - The database is not encrypted by the app.
 - The web preview opens no database.
@@ -304,18 +319,27 @@ The schema is drawn in [diagrams.md](./diagrams.md#implemented-sqlite-schema) an
 
 "Delete Permanently" is permanent physical deletion: the record is removed from SQLite. It is not a soft delete and not an archive, and it leaves no tombstone behind.
 
-Implemented for Subjects, Classes, and assignments. The confirmation shown today:
+Implemented for Subjects, Classes, assignments, Students, and Answer Keys. The confirmation shown today:
 
 ```text
-Delete “BSIT 1A”?
+Delete “Midterm examination”?
 
-This permanently deletes the class from this device.
+Subject: Mathematics. 40 questions.
+
+This permanently deletes the answer key from this device.
 It cannot be undone.
 
 [Cancel] [Delete]
 ```
 
-When other records depend on the one being deleted, the deletion is blocked and the dialog says why, for example "This class contains 24 students and is used by 2 exams." Nothing is cascaded to those records.
+When other records depend on the one being deleted, the deletion is blocked and the dialog says why, for example "This class contains 24 students. Move or delete those students first; then the class can be deleted." Nothing is cascaded to those records.
+
+| Record | Blocked while |
+| --- | --- |
+| Subject | Answer Keys belong to it |
+| Class | Students belong to it |
+| Student | Saved Results belong to it |
+| Answer Key | Saved Results were scored with it |
 
 Planned: deleting a result also removes its student answers, scan metadata, and local scan image. The rules are in [api.md](./api.md#permanent-deletion-contract). Because there is no backup, a deleted record cannot be recovered.
 
@@ -338,7 +362,7 @@ They may be reconsidered only after an explicit requirement change, recorded as 
 ## Constraints
 
 - Must run acceptably on low and mid-range Android devices: camera responsiveness, image preprocessing time, and memory use matter.
-- OpenCV on-device requires native code that Expo Go does not contain, so the scanning stage will need an Expo development build. The features built so far use only modules that a development build or standard Expo client provides.
+- OpenCV on-device requires native code that Expo Go does not contain, so the scanning stage will need an Expo development build. The features built so far use only Expo SDK modules.
 - Large sheets (many questions) and batch scanning increase processing time and memory pressure.
 - Temporary images must be cleaned up; full-resolution images should not be stored after processing unless required.
 - SQLite queries must stay fast as results accumulate (indexes on foreign keys and common filters).
@@ -366,53 +390,59 @@ Inspected 2026-10-02.
 | Item | Finding |
 | --- | --- |
 | Expo project | Implemented. Name "Answer Checker", slug `answer-checker`, scheme `answerchecker`. Managed/CNG: no `android/` or `ios/` folders |
-| Navigation | Implemented and verified. Bottom tabs: `/`, `/exams`, `/scan`, `/students`, `/results`. Secondary screens opened from Home → More, with Back and Home still selected: `/classes`, `/subjects`, `/settings`. No drawer or sidebar |
+| Navigation | Implemented and verified. Bottom tabs: `/`, `/keys`, `/scan`, `/students`, `/results`. Secondary screens opened from Home → More, with Back and Home still selected: `/classes`, `/subjects`, `/settings`. No drawer or sidebar, and no `/exams` route |
 | Design system | Implemented and verified. Light and dark tokens, selective glass surfaces. Live blur is off on Android |
 | Home dashboard | Implemented and verified. Shortcuts, static empty states, and the More list; it reads no data yet |
-| SQLite database | Implemented. `answer-checker.db`, WAL, foreign keys on, `STRICT` tables, `PRAGMA user_version` = 2 |
-| Migration 1 (base schema, nine tables) | Implemented and verified on an Android 14 emulator and on a physical phone |
-| Migration 2 (`class_subjects`) | Implemented. Fresh-install and version-1 upgrade paths pass in the Node tests. Not verified on a device |
-| Subjects | Implemented and verified: list, add, rename, permanent delete |
-| Classes | Implemented and verified: list, add, rename, permanent delete |
-| Subject-to-Class assignments | Implemented, not verified on a device |
+| SQLite database | Implemented. `answer-checker.db`, WAL, foreign keys on, `STRICT` tables, `PRAGMA user_version` = 4 |
+| Migration 1 (base schema) | Verified on an Android 14 emulator and on a physical phone |
+| Migration 2 (`class_subjects`) | Has run on a physical phone |
+| Migration 3 (Student ID unique in the app) | Has run on a physical phone |
+| Migration 4 (answer keys replace exams) | Has run on a physical phone, with no legacy rows to convert. The conversion and its rollback are covered by the Node tests |
+| Subjects, Classes | Implemented and verified: list, add, rename, permanent delete |
+| Subject-to-Class assignments | Implemented and in use on the phone; no separate acceptance report |
+| Students | Implemented and verified: list, search, filter, add, edit, move, permanent delete |
+| Roster import | Implemented and verified: both CSV formats, preview, class mapping, atomic save, temporary-file cleanup |
+| Answer Keys | Implemented and verified: list, search, filter, create, view, edit, duplicate, permanent delete |
+| Blocked by Results; locked Answer Key | Implemented and tested in Node. Not reachable on a phone until Results exist |
 | In-app notice | Implemented and verified |
-| Students | Planned. Placeholder screen; table exists and is unused |
-| Answer Keys | Planned. Placeholder screen labelled "Exams"; the schema does not yet match the approved model |
 | Camera, OMR, review, scoring | Planned. Expo Camera and OpenCV not installed |
-| Results | Planned. Placeholder screen; tables exist and are unused |
-| Permanent deletion | Implemented for Subjects, Classes, and assignments. Planned for everything else |
-| Repositories and use cases | Subjects, Classes, and Subject-to-Class assignments only |
+| Results | Planned. Placeholder screen; the `results` table is only counted |
+| Permanent deletion | Implemented for Subjects, Classes, assignments, Students, and Answer Keys. Planned for Results |
+| Repositories and use cases | Subjects, Classes, Subject-to-Class assignments, Students, Answer Keys |
 | Backend | None. No server code, no network requests |
 | Supabase, MongoDB | Not installed. Excluded from the architecture |
 | Authentication, synchronization | None. Excluded from the architecture |
-| Automated tests | 141 tests in `tests/database/`, run by `npm run test:db`, all passing. No UI tests |
+| Automated tests | 270 tests in `tests/database/`, run by `npm run test:db`, all passing. No UI tests |
 | App icons and splash | Still the Expo template artwork |
 | Native identifiers | `android.package` and `ios.bundleIdentifier` not set |
 
-Verification performed on the review date: `npm run test:db` (141 pass), `tsc --noEmit`, ESLint, `expo-doctor` (21 of 21), React Native Reusables `doctor`, and JavaScript bundle exports for web and Android all pass.
+Verification performed on the review date: `npm run test:db` (270 pass), `tsc --noEmit`, ESLint, `expo-doctor` (21 of 21), React Native Reusables `doctor`, and JavaScript bundle exports for web and Android all pass.
 
-The Node tests prove the SQL, the migrations, the repositories, and the use cases against Node's built-in SQLite. They do not prove `expo-sqlite` on a device; the device checks above do that for migration 1, Subjects, and Classes.
+The Node tests prove the SQL, the migrations and every upgrade path, the repositories, the use cases, the CSV reader, and the roster-file lifecycle (with a fake file system) against Node's built-in SQLite. They do not prove `expo-sqlite`, the file picker, or the UI on a device; the acceptance passes on the phone do that for the features marked verified.
 
-Not verified on a physical device: migration 2, the Manage subjects dialog, and the row summaries. TalkBack and raised font sizes have not been systematically checked.
+"Verified" in this document rests on the project owner's acceptance on a physical Android phone. TalkBack and raised font sizes have not been systematically checked.
 
-Web is a preview of the phone app only. In a browser the app is held to a 480-point column; there is no desktop or tablet layout. The database provider is a pass-through there, and the Subjects and Classes screens show "Only on the phone" with no Add action.
+Web is a preview of the phone app only. In a browser the app is held to a 480-point column; there is no desktop or tablet layout. The database provider is a pass-through there, and the Subjects, Classes, Students, and Answer Keys screens show "Only on the phone" with no Add action.
 
 ## Known Mismatches
 
-| Mismatch | Detail |
+The exam-versus-answer-key mismatches recorded earlier are resolved: migration 4 replaced the exam tables, and the tab, screen, and Home wording now say Keys and Answer Keys.
+
+| Open point | Detail |
 | --- | --- |
-| "Exams" versus "Answer Keys" | The tab, the placeholder screen, the Home action ("Create exam"), and the Home activity row ("Recent exams") still use the old wording. The approved wording is in [source-of-truth.md](./source-of-truth.md#answer-key-truth) |
-| Schema versus Answer Key model | `exams.class_id` is required, so the schema cannot yet express an Answer Key reused across Classes. A migration is required before Stage 4 |
-| `exams` in deletion messages | A blocked deletion reports "exams" because that is the table that exists. The wording changes with the Answer Keys migration |
+| Back from Subjects | Opened from the "Open Subjects" button on Answer Keys, Back returns to Answer Keys rather than Home |
+| Large lists | The Students and Answer Keys lists are plain scrolling lists, not virtualized. Several hundred rows may open slowly |
+| CSV encoding | A roster is read as UTF-8. A file saved in another encoding shows wrong characters for letters such as ñ |
+| File types | The picker offers files reported as CSV or plain text. A provider that reports another type shows the file greyed out |
 
 ## Roadmap
 
 | Stage | Scope | Status |
 | --- | --- | --- |
 | 1 | Database foundation: SQLite, migrations, base schema, transactions, tests | Implemented and verified |
-| 2 | Subjects, Classes, and Subject-to-Class assignments | Subjects and Classes: implemented and verified. Assignments (migration 2): implemented, not verified on a device |
-| 3 | Students and offline roster import | Planned |
-| 4 | Answer Keys and the required schema and terminology migration | Planned |
+| 2 | Subjects, Classes, and Subject-to-Class assignments | Implemented and verified |
+| 3 | Students and offline roster import | Implemented and verified |
+| 4 | Answer Keys and the schema and terminology migration | Implemented and verified |
 | 5 | Scan, camera, on-device OMR, and review | Planned |
 | 6 | Results and permanent result and image deletion | Planned |
 | 7 | Home integration with real data | Planned |

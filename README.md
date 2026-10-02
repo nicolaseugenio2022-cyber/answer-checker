@@ -4,7 +4,7 @@ Offline-only mobile app for Teachers to check shaded multiple-choice answer shee
 
 Everything runs on the phone. Data is kept in a local SQLite database stored on the Teacher's device. There is no backend, no cloud database, no account, and no synchronization, so the app never needs the internet. Data is not shared between phones, and uninstalling the app or clearing its data removes it.
 
-**Status:** the Teacher can manage Subjects and Classes and choose which Subjects are taught to each Class, all stored in the local SQLite database (schema version 2). Students, Answer Keys, scanning, OMR, and Results are not built yet; their screens are placeholders. See [docs/project.md](docs/project.md#current-implementation-status).
+**Status:** the Teacher can manage Subjects, Classes, and Students, choose which Subjects are taught to each Class, import a class roster from a CSV file, and create Answer Keys, all stored in the local SQLite database (schema version 4). Scanning, OMR, and Results are not built yet; their screens are placeholders. See [docs/project.md](docs/project.md#current-implementation-status).
 
 ## Get started
 

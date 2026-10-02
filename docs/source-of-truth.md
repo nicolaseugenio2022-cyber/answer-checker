@@ -4,7 +4,7 @@ Last reviewed: 2026-10-02
 
 This document records the authoritative product and architecture decisions for the Offline Answer Sheet Scanner. Developers and AI coding agents must read it before changing the project.
 
-> **Implementation status at time of writing:** the app shell, the local SQLite database (schema version 2), Subjects, Classes, and Subject-to-Class assignments exist. Students, Answer Keys, scanning, OMR, and Results do not. Unless a row or sentence says "Implemented", everything below is a **target decision**, not a description of working software. See [project.md](./project.md#current-implementation-status).
+> **Implementation status at time of writing:** the app shell, the local SQLite database (schema version 4), Subjects, Classes, Subject-to-Class assignments, Students with CSV roster import, and Answer Keys exist. Scanning, OMR, and Results do not. Unless a row or sentence says "Implemented", everything below is a **target decision**, not a description of working software. See [project.md](./project.md#current-implementation-status).
 
 ## Status Vocabulary
 
@@ -48,8 +48,9 @@ Do not introduce RBAC. With a single role there is nothing to authorize between.
 | Mobile | React Native, Expo, TypeScript | Implemented |
 | Navigation | Expo Router, routes under `src/app` | Implemented |
 | UI | React Native Reusables, NativeWind, shadcn New York style, pink glass theme | Implemented |
-| Persistence | SQLite via `expo-sqlite`. Required; the only application database | Implemented (schema version 2) |
+| Persistence | SQLite via `expo-sqlite`. Required; the only application database | Implemented (schema version 4) |
 | Record IDs | UUIDs from `expo-crypto` (`randomUUID`) | Implemented |
+| Roster files | `expo-document-picker` to choose a CSV file, `expo-file-system` to read and delete its temporary copy. The CSV reader is the project's own code | Implemented |
 | Camera | Expo Camera, or a compatible React Native camera library, on-device | Planned, not installed |
 | OMR | OpenCV running on-device | Planned, not installed |
 | Query/ORM layer | Drizzle ORM | Optional, not decided, not installed. Repositories use raw `expo-sqlite` today |
@@ -88,12 +89,12 @@ Implemented and verified on a physical Android phone.
 The bottom navigation has exactly five items, in this order:
 
 1. Home
-2. Exams
+2. Keys
 3. Scan
 4. Students
 5. Results
 
-- `Exams` is the **temporary implemented label** of a placeholder screen. The approved future label is `Keys` (screen title `Answer Keys`). The rename has not been made; see [Answer Key Truth](#answer-key-truth).
+- `Keys` opens the Answer Keys screen (route `/keys`, title `Answer Keys`). There is no Exams tab, route, or screen.
 - Subjects, Classes, and Settings are **not** bottom-tab items. They have no slot, icon, or label in the bar. They are secondary screens reached through:
 
 ```text
@@ -102,8 +103,10 @@ Home → More → Subjects
 Home → More → Settings
 ```
 
-- A secondary screen keeps the bottom bar visible, shows a compact header with a Back action, and leaves **Home as the selected tab**. The header Back action and the Android back button both return to Home.
+- A secondary screen keeps the bottom bar visible, shows a compact header with a Back action, and leaves **Home as the selected tab**. The header Back action and the Android back button return to the screen it was opened from, which is Home.
+- One exception: when no Subject exists, the Answer Keys screen offers an "Open Subjects" button, because an Answer Key needs a Subject. Back from Subjects then returns to Answer Keys.
 - The bar is a floating glass capsule with side margins, sitting above the bottom safe-area inset, with a visible label under every icon. The selected tab's icon sits in a raised pink circle that overlaps the capsule's top edge. The circle rises in with a short fade; it does not slide between tabs, and the animation is skipped when the system asks for reduced motion. Tab positions and touch areas never move.
+- The bar steps aside while the on-screen keyboard is open, so it never covers a field.
 - Exactly one tab looks selected. Scan is the central tab and is styled like every other tab when it is not selected; it is a normal tab, not a floating button.
 - The selected tab is marked by position (the raised circle), shape, and label weight as well as color.
 - The destination list lives in `src/core/presentation/navigation/destinations.ts`.
@@ -126,11 +129,12 @@ Course, Grade, Strand, and Section are **not** separate fields or database entit
 - Names are unique within their kind, ignoring letter case.
 - Renaming keeps `created_at` and updates `updated_at`. Renaming to the same name changes nothing.
 - Lists are alphabetical, ignoring letter case.
-- A Subject cannot be deleted while an exam row (the future Answer Key) uses it. A Class cannot be deleted while it has students or exam rows. The Teacher is told how many records block the deletion. Nothing cascades to those records.
+- A Subject cannot be deleted while Answer Keys belong to it. A Class cannot be deleted while it has Students. The Teacher is told how many records block the deletion. Nothing cascades to those records.
+- An Answer Key does not belong to a Class, so it never blocks deleting one.
 
 ### Subject-to-Class assignments
 
-Implemented, not yet verified on a physical device.
+Implemented. Migration 2 has run on a physical Android phone.
 
 ```text
 Subject ← class_subjects → Class
@@ -145,75 +149,112 @@ Subject ← class_subjects → Class
 
 ## Student Truth
 
-Planned. No Student feature is implemented; the `students` table exists but nothing reads or writes it.
+Implemented and verified on a physical Android phone.
 
 ```text
 Student
 - internal application ID (UUID, never shown)
-- Student ID shown to the Teacher
+- Student ID shown to the Teacher (column student_number)
 - Full name
 - Class ID
 ```
 
 - A Student belongs to exactly one Class.
-- A Student has no Course, Grade, Strand, or Section field. That information is carried by the assigned Class.
-- Planned entry methods: add one Student, add several Students, and offline CSV import.
+- A Student has no Course, Grade, Strand, or Section field, and no Subject. That information is carried by the assigned Class; Subjects reach a Student through the Class.
+- The Student ID is trimmed, required, at most 32 characters, and **unique across all Students in the app**, ignoring letter case.
+- The full name is trimmed, required, and at most 100 characters.
+- The Teacher can add, edit, move to another Class, search, filter by Class, and permanently delete a Student.
+- A Student with saved Results cannot be deleted. The Results are never deleted from the Students screen.
+- Lists are ordered by Class name, full name, Student ID, then internal ID.
 
-CSV imported inside a selected Class:
+### Roster import
+
+Implemented. The Teacher imports a CSV file chosen on the device. Nothing uses the network.
+
+Format A, into one Class the Teacher chooses:
 
 ```csv
 student_id,full_name
-2024-00125,Paolo Garcia
-2024-00126,Sofia Mendoza
+2026-001,Maria Santos
+2026-002,Paolo Garcia
 ```
 
-Optional multi-Class CSV:
+Format B, a roster of several Classes:
 
 ```csv
-student_id,full_name,class
-SHS-001,Maria Santos,Grade 11 STEM-A
-COL-001,Paolo Garcia,BSIT 1A
+student_id,full_name,grade_and_section,course
+SHS-001,Maria Santos,Grade 11 A,STEM
+COL-001,Paolo Garcia,1A,BSIT
 ```
 
-The file is read from local storage. Import never uses the network.
+- Format B replaces the earlier idea of a single `class` column.
+- Rows are grouped by `grade_and_section` plus `course`, and each group is mapped to an **existing** Class. A Class is selected automatically only when its name equals the two values joined in either order, compared by letters and digits alone, and exactly one Class matches. Everything else is chosen by the Teacher. The import never creates a Class.
+- Only `class_id` is stored. `grade_and_section` and `course` are not kept.
+- Before anything is stored, a preview shows the file name, the number of rows, the valid rows, the invalid rows, the Student IDs repeated in the file, the Students already stored, the groups without a Class, and how many Students will be added. Every rejected row is listed with its CSV row number.
+- A stored Student is never overwritten or updated by an import.
+- The confirmed rows are stored in one transaction: all of them, or none.
+
+### Roster file lifecycle
+
+Binding storage rule.
+
+- The CSV is an import source, not app data. Its contents, name, and path are never stored in SQLite.
+- The app reads the file into memory and deletes its own temporary copy immediately, before the preview opens, whatever happens next.
+- Only a file inside the app's own import cache folder is ever deleted. The Teacher's original file is never deleted, changed, renamed, or moved.
+- Copies left by an interrupted session are removed the next time the Teacher picks a file.
+
+### Not built
+
+Adding several Students in one manual form is not built. A roster import covers that need.
 
 ## Answer Key Truth
 
-Binding product decision. **Planned; not implemented.**
+Binding product decision. Implemented and verified on a physical Android phone.
 
-The Teacher does not create an exam in the app. The Teacher creates only an Answer Key for an existing physical examination.
+The Teacher does not create an exam in the app. The Teacher creates only an Answer Key for an existing physical examination. There is no Exam entity, table, screen, or route.
 
-Approved user-facing terminology:
+User-facing terminology:
 
-| Place | Approved text | Implemented today |
-| --- | --- | --- |
-| Bottom-tab label | `Keys` | `Exams` |
-| Screen title | `Answer Keys` | `Exams & answer keys` (placeholder) |
-| Home action | `Create answer key` | `Create exam` |
-| Home activity label | `Recent answer keys` | `Recent exams` |
+| Place | Text |
+| --- | --- |
+| Bottom-tab label | `Keys` |
+| Screen title | `Answer Keys` |
+| Primary action and Home shortcut | `Create answer key` |
+| Home activity label | `Recent answer keys` |
+
+The word "exam" appears only in ordinary copy about the paper test, such as the example name "Midterm examination".
 
 An Answer Key contains:
 
-- A name or identifying label
-- A Subject
-- The number of questions
-- The correct answer, A, B, C, or D, for each question
+- A name, unique within its Subject, ignoring letter case. The same name may be used under another Subject.
+- One Subject.
+- 1 to 40 questions.
+- Exactly one correct answer, A, B, C, or D, for every question.
 
 The app does not store question text, choice text, or any other content of the physical examination.
 
-A Subject can have several Answer Keys. An Answer Key may be reused across several Classes.
+A Subject can have several Answer Keys. An Answer Key does not belong to a Class: it is used with every Class assigned to its Subject.
 
-### Current mismatch between the schema and this decision
+### Rules
 
-- The physical SQLite schema (migration 1) still contains `exams`, `exam_questions`, and `answer_keys`.
-- `exams.class_id` is required, so today's schema ties one exam row to one Class.
-- That does not match a reusable Answer Key that belongs to a Subject and is used with several Classes.
-- A deliberate schema and terminology migration is required before the Answer Keys stage is built. It does not exist yet.
-- Until then, documents show the implemented physical schema and the approved model separately. Do not rename tables in documentation while the code is unchanged.
+- A key is saved whole, header and answers together, in one transaction. An incomplete key is never stored.
+- The Teacher can list, search, filter by Subject, view, create, edit, duplicate, and permanently delete Answer Keys.
+- Duplicating copies the Subject, the question count, and every answer under a new ID, proposes a free name such as "Midterm – Copy", and copies no Results.
+
+### Historical integrity
+
+- Once a saved Result was scored with an Answer Key, its Subject, question count, and answers are frozen. Its name can still change.
+- Old Results are never rescored.
+- To revise a used key, the Teacher duplicates it and edits the copy.
+- A key with Results cannot be deleted until those Results are permanently deleted.
+
+### Schema history
+
+Migration 1 modelled exams: `exams` (with a required class), `exam_questions`, and a per-question `answer_keys` table. Migration 4 converted that into `answer_keys` and `answer_key_items`, kept the IDs, renamed `exam_results` to `results`, and removed the class ownership and the old tables. See [api.md](./api.md#migrations).
 
 ## Scanning Truth
 
-Planned. No scanning screen, camera, or OMR code exists.
+Planned. No scanning screen, camera, or OMR code exists. The data it selects from is implemented: Subjects, Answer Keys by Subject, Classes by Subject, and Students by Class.
 
 Approved flow:
 
@@ -292,9 +333,9 @@ Layers that exist today:
 | Location | Layers present |
 | --- | --- |
 | `src/core` | `domain`, `application`, `infrastructure/database`, `presentation` |
-| `features/subjects`, `features/classes` | `domain`, `application`, `infrastructure`, `presentation` |
+| `features/subjects`, `classes`, `students`, `answer-keys` | `domain`, `application`, `infrastructure`, `presentation` |
 | `features/class-subjects` | `application`, `infrastructure`, `presentation` (it has no entity of its own) |
-| `features/dashboard`, `exams`, `scan`, `students`, `results`, `settings` | `presentation` only |
+| `features/dashboard`, `scan`, `results`, `settings` | `presentation` only |
 
 ## Offline Truth
 
@@ -340,8 +381,8 @@ Planned. OpenCV and a camera library are not installed.
 - Record IDs are UUIDs generated on the device, not auto-increment integers.
 - Timestamps are UTC ISO-8601 strings as `Date.prototype.toISOString()` produces them.
 - Tables are `STRICT`. Foreign-key enforcement is turned on, and verified, on every connection. Journaling is WAL.
-- Schema changes are made only through ordered, versioned migrations in `src/core/infrastructure/database/migrations.ts`, one file per migration. The schema version is stored in `PRAGMA user_version`. The latest version is **2**.
-- A migration that has run on a device is frozen. Migration 1 has run on a physical Android phone; never edit it. Treat migration 2 the same way.
+- Schema changes are made only through ordered, versioned migrations in `src/core/infrastructure/database/migrations.ts`, one file per migration. The schema version is stored in `PRAGMA user_version`. The latest version is **4**.
+- A migration that has run on a device is frozen. Migrations 1 to 4 have run on a physical Android phone; never edit them. Change the schema by appending migration 5.
 - The schema is the evidence of what is implemented. The implemented schema is drawn in [diagrams.md](./diagrams.md#implemented-sqlite-schema).
 - Do not add role, permission, account, teacher, or synchronization tables.
 
@@ -352,13 +393,13 @@ Permanent physical deletion is mandatory.
 - "Delete Permanently" means the local domain record is **physically removed** from SQLite.
 - It is not `isDeleted = true`. It is not `status = archived`. There is no `deleted_at` column, tombstone, or soft-delete flag, and one must not be added. An archive feature, if ever added, is a separate feature.
 - Deletion requires explicit confirmation that names the record and states the action cannot be undone.
-- A shared parent record must not silently destroy unrelated records. A Class with students or exam rows, a Subject with exam rows, and a Student or exam row with results are blocked from deletion (`ON DELETE RESTRICT`) until a use case removes those records deliberately.
-- Dependent rows that cannot exist on their own are removed with their parent: a result's answer rows and scan metadata, an exam row's questions and answer letters, and the Subject-to-Class assignment rows of a deleted Subject or Class.
+- A shared parent record must not silently destroy unrelated records. A Class with Students, a Subject with Answer Keys, and a Student or Answer Key with Results are blocked from deletion (`ON DELETE RESTRICT`) until those records are removed deliberately.
+- Dependent rows that cannot exist on their own are removed with their parent: a Result's answer rows and scan metadata, an Answer Key's items, and the Subject-to-Class assignment rows of a deleted Subject or Class.
 - Deleting a Result removes its answer rows and scan metadata. The local image paths are collected before the database deletion is committed, and the files are deleted after the commit.
 - Deletion leaves nothing behind: no tombstone, no soft-deleted row, and no synchronization instruction.
 - Because there is no backup, a permanent deletion cannot be recovered.
 
-Implemented today: permanent deletion of Subjects, Classes, and assignments. Result deletion and file cleanup are Planned.
+Implemented today: permanent deletion of Subjects, Classes, assignments, Students, and Answer Keys. Result deletion and file cleanup are Planned.
 
 ## Excluded: Cloud and Synchronization
 
